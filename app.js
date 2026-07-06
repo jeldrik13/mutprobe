@@ -41,6 +41,7 @@ const defaultState = () => ({
   todayPicks: [],
   todayCompleted: [],
   startLevels: {},           // Einstufung pro Track – Ängste sind bereichsspezifisch
+  reminderDismissedDay: null,
   currentChallengeId: null,
   currentIsBoss: false,
   currentWette: null,        // { text, prob, fearBefore }
@@ -269,6 +270,22 @@ function heuteHeader() {
   return `<p class="view-date">${dateStr}</p><h1>Heute</h1>`;
 }
 
+function reminderBanner() {
+  if (state.reminderDismissedDay === todayStr() || state.doneToday) return null;
+  const hour = new Date().getHours();
+  const streakAtRisk = state.lastDoneDay === daysAgoStr(2) && state.jokers === 0;
+  if (streakAtRisk) {
+    return { text: `Deine Serie von ${state.streak} ${state.streak === 1 ? "Tag" : "Tagen"} reißt heute ohne Joker ab. Noch ist Zeit.`, urgent: true };
+  }
+  if (hour >= 19 && state.streak > 0) {
+    return { text: `Deine Serie von ${state.streak} ${state.streak === 1 ? "Tag" : "Tagen"} läuft heute noch aus. Eine Mutprobe reicht.`, urgent: false };
+  }
+  if (hour >= 21 && state.streak === 0 && state.history.length > 0) {
+    return { text: "Der Tag ist noch nicht vorbei. Eine kleine Mutprobe passt auch spät noch.", urgent: false };
+  }
+  return null;
+}
+
 function renderHeute() {
   const v = $("#view-heute");
   const ringPct = state.doneToday ? 1 : 0.04;
@@ -277,6 +294,17 @@ function renderHeute() {
     : (state.streak > 0 ? `Noch offen. Serie: ${state.streak} ${state.streak === 1 ? "Tag" : "Tage"}.` : "Noch offen. Eine Mutprobe schließt ihn.");
 
   let html = heuteHeader();
+
+  const banner = reminderBanner();
+  if (banner) {
+    html += `<div class="card banner-card${banner.urgent ? " urgent" : ""}">
+      <p class="banner-text">${banner.text}</p>
+      <button class="banner-close" id="btn-dismiss-banner" aria-label="Hinweis ausblenden">
+        <svg viewBox="0 0 24 24"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
+      </button>
+    </div>`;
+  }
+
   html += `<div class="card ring-card">
     ${ringSvg(ringPct, 80, 30, 9, "var(--accent)")}
     <div><p class="r-title">Mut-Ring</p><p class="r-sub">${ringSub}</p></div>
@@ -336,6 +364,12 @@ function renderHeute() {
 
   v.innerHTML = html;
 
+  const bannerClose = $("#btn-dismiss-banner");
+  if (bannerClose) bannerClose.addEventListener("click", () => {
+    state.reminderDismissedDay = todayStr();
+    saveState();
+    render();
+  });
   v.querySelectorAll("[data-pick]").forEach((el) => el.addEventListener("click", () => acceptChallenge(el.dataset.pick, false)));
   v.querySelectorAll("[data-boss]").forEach((el) => el.addEventListener("click", () => acceptChallenge(el.dataset.boss, true)));
   const reroll = $("#btn-reroll");

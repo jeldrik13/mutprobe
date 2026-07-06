@@ -88,6 +88,17 @@ main { flex: 1; padding: max(18px, env(safe-area-inset-top)) 16px calc(88px + en
 
 .card { background: var(--card); border-radius: 16px; padding: 16px; margin-bottom: 12px; }
 
+/* Reminder-Banner */
+.banner-card {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--accent-tint); padding: 13px 14px;
+}
+.banner-card.urgent { background: rgba(215, 0, 21, 0.13); }
+.banner-text { flex: 1; font-size: 14px; font-weight: 500; color: var(--accent-text); line-height: 1.4; }
+.banner-card.urgent .banner-text { color: var(--danger); }
+.banner-close { background: none; border: none; padding: 4px; flex-shrink: 0; cursor: pointer; color: inherit; opacity: 0.7; }
+.banner-close svg { width: 16px; height: 16px; stroke: currentColor; stroke-width: 2; }
+
 /* Ring-Karte */
 .ring-card { display: flex; align-items: center; gap: 16px; }
 .ring-card svg { width: 68px; height: 68px; flex-shrink: 0; }
