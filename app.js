@@ -8,17 +8,23 @@ const defaultState = () => ({
   koerbe: 0,
   streak: 0,
   bestStreak: 0,
-  lastDoneDay: null,      // "YYYY-MM-DD" des letzten Tages mit Eintrag
-  todayKey: null,          // Tag, für den todayPicks/currentChallenge gelten
-  todayPicks: [],          // 3 vorgeschlagene Challenge-IDs
+  lastDoneDay: null,
+  todayKey: null,
+  todayPicks: [],
   currentChallengeId: null,
+  currentIsBoss: false,
+  currentWette: null,        // { text, prob, fearBefore }
   doneToday: false,
-  history: [],             // { date, challengeId, outcome, text, fearBefore, fearAfter, xp }
-  earnedBadges: [],
+  bossDoneWeek: null,
+  lastSkipXpDay: null,
+  jokers: 0,
+  jokerEarnedBasis: 0,
+  history: [],               // { date, challengeId, isBoss, outcome, text, fearBefore, fearAfter, xp, wette }
 });
 
 let state = loadState();
-let pendingOutcome = null; // { challengeId, outcome } während das Reflexions-Modal offen ist
+let pendingOutcome = null;
+let recognition = null;
 
 // ── Persistenz ──────────────────────────────────────────
 function loadState() {
@@ -34,12 +40,31 @@ function saveState() {
 
 // ── Helfer ──────────────────────────────────────────────
 const $ = (sel) => document.querySelector(sel);
-const todayStr = () => new Date().toISOString().slice(0, 10);
-const yesterdayStr = () => {
-  const d = new Date(); d.setDate(d.getDate() - 1);
-  return d.toISOString().slice(0, 10);
-};
-
+const todayStr = () => localDateStr(new Date());
+function localDateStr(d) {
+  const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, "0"), t = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${t}`;
+}
+function daysAgoStr(n) {
+  const d = new Date(); d.setDate(d.getDate() - n);
+  return localDateStr(d);
+}
+function weekKey() {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() + 3 - ((d.getDay() + 6) % 7));
+  const week1 = new Date(d.getFullYear(), 0, 4);
+  const wk = 1 + Math.round(((d - week1) / 86400000 - 3 + ((week1.getDay() + 6) % 7)) / 7);
+  return `${d.getFullYear()}-W${wk}`;
+}
+function weekNum() { return parseInt(weekKey().split("W")[1], 10); }
+function fmtDate(iso) {
+  const [y, m, t] = iso.split("-").map(Number);
+  return new Date(y, m - 1, t).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
+}
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
+}
 function currentLevel() {
   let lvl = 0;
   LEVELS.forEach((l, i) => { if (state.xp >= l.xp) lvl = i; });
@@ -51,12 +76,23 @@ function unlockedStufen() {
   if (lvl >= 2) return [1, 2];
   return [1];
 }
-function showToast(msg, ms = 2600) {
+function showToast(msg, ms = 2800) {
   const t = $("#toast");
   t.textContent = msg;
   t.classList.remove("hidden");
   clearTimeout(t._timer);
   t._timer = setTimeout(() => t.classList.add("hidden"), ms);
+}
+function ringSvg(pct, size, r, w, color) {
+  const c = 2 * Math.PI * r;
+  const off = c * (1 - Math.max(0.02, Math.min(1, pct)));
+  const mid = size / 2;
+  return `<svg viewBox="0 0 ${size} ${size}" aria-hidden="true">
+    <circle cx="${mid}" cy="${mid}" r="${r}" fill="none" stroke="var(--ring-track)" stroke-width="${w}"></circle>
+    <circle class="ring-fill" cx="${mid}" cy="${mid}" r="${r}" fill="none" stroke="${color}" stroke-width="${w}"
+      stroke-linecap="round" stroke-dasharray="${c.toFixed(1)}" stroke-dashoffset="${off.toFixed(1)}"
+      transform="rotate(-90 ${mid} ${mid})"></circle>
+  </svg>`;
 }
 
 // ── Tages-Logik ─────────────────────────────────────────
@@ -66,21 +102,33 @@ function ensureToday() {
     state.todayKey = today;
     state.doneToday = false;
     state.currentChallengeId = null;
+    state.currentIsBoss = false;
+    state.currentWette = null;
     state.todayPicks = pickChallenges(3);
     saveState();
   }
 }
-function pickChallenges(n) {
+function pickChallenges(n, avoid = []) {
   const stufen = unlockedStufen();
-  const maxStufe = Math.max(...stufen);
   const pool = CHALLENGES.filter((c) => c.track === state.track && stufen.includes(c.stufe));
   const recent = state.history.slice(-6).map((h) => h.challengeId);
-  const fresh = pool.filter((c) => !recent.includes(c.id));
-  const usable = fresh.length >= n ? fresh : pool;
-  // Höchste freigeschaltete Stufe leicht bevorzugen, dann mischen
-  const shuffled = [...usable].sort(() => Math.random() - 0.5);
-  shuffled.sort((a, b) => (b.stufe === maxStufe ? 1 : 0) - (a.stufe === maxStufe ? 1 : 0) + (Math.random() - 0.5));
-  return shuffled.slice(0, n).map((c) => c.id);
+  let usable = pool.filter((c) => !recent.includes(c.id));
+  if (usable.length < n) usable = pool;
+  for (let attempt = 0; attempt < 12; attempt++) {
+    const shuffled = [...usable].sort(() => Math.random() - 0.5);
+    const picks = shuffled.slice(0, n).map((c) => c.id);
+    const same = avoid.length && picks.every((id) => avoid.includes(id));
+    if (!same || usable.length <= n) return picks;
+  }
+  return usable.slice(0, n).map((c) => c.id);
+}
+function bossForWeek() {
+  const list = BOSS_CHALLENGES.filter((b) => b.track === state.track);
+  if (!list.length) return null;
+  return list[weekNum() % list.length];
+}
+function findChallenge(id) {
+  return CHALLENGES.find((c) => c.id === id) || BOSS_CHALLENGES.find((b) => b.id === id) || null;
 }
 
 // ── Rendering ───────────────────────────────────────────
@@ -89,13 +137,16 @@ function render() {
   if (!state.track) {
     onb.classList.remove("hidden");
     main.classList.add("hidden");
+    // Bestandsnutzer (Track-Wechsel) landen direkt bei der Track-Auswahl
+    const step = state.history.length || state.xp > 0 ? "3" : "1";
+    document.querySelectorAll(".onb-step").forEach((s) => s.classList.add("hidden"));
+    document.querySelector(`.onb-step[data-step="${step}"]`).classList.remove("hidden");
     renderTrackList();
     return;
   }
   onb.classList.add("hidden");
   main.classList.remove("hidden");
   ensureToday();
-  renderHeader();
   renderHeute();
   renderFortschritt();
   renderJournal();
@@ -107,9 +158,17 @@ function renderTrackList() {
   Object.entries(TRACKS).forEach(([key, t]) => {
     const btn = document.createElement("button");
     btn.className = "track-card";
-    btn.innerHTML = `<div class="t-name">${t.emoji} ${t.name}</div><div class="t-desc">${t.beschreibung}</div>`;
+    btn.innerHTML = `<div><div class="t-name">${t.name}</div><div class="t-desc">${t.beschreibung}</div></div>
+      <svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7" fill="none"/></svg>`;
     btn.addEventListener("click", () => {
       state.track = key;
+      // doneToday bleibt beim Track-Wechsel erhalten – kein Mehrfach-XP am selben Tag
+      if (state.todayKey === todayStr()) {
+        state.todayPicks = pickChallenges(3);
+        state.currentChallengeId = null;
+        state.currentIsBoss = false;
+        state.currentWette = null;
+      }
       saveState();
       render();
     });
@@ -117,85 +176,86 @@ function renderTrackList() {
   });
 }
 
-function renderHeader() {
-  const t = TRACKS[state.track];
-  $("#header-track").textContent = `${t.emoji} ${t.name}`;
-  $("#header-streak").textContent = `🔥 ${state.streak} ${state.streak === 1 ? "Tag" : "Tage"}`;
-  const lvl = currentLevel();
-  const cur = LEVELS[lvl];
-  const next = LEVELS[lvl + 1];
-  $("#level-name").textContent = `Lv. ${lvl + 1} · ${cur.name}`;
-  if (next) {
-    $("#level-xp").textContent = `${state.xp} / ${next.xp} XP`;
-    const pct = ((state.xp - cur.xp) / (next.xp - cur.xp)) * 100;
-    $("#level-progress").style.width = `${Math.min(100, pct)}%`;
-  } else {
-    $("#level-xp").textContent = `${state.xp} XP · Max-Level!`;
-    $("#level-progress").style.width = "100%";
-  }
+function heuteHeader() {
+  const dateStr = new Date().toLocaleDateString("de-DE", { weekday: "long", day: "numeric", month: "long" });
+  return `<p class="view-date">${dateStr}</p><h1>Heute</h1>`;
 }
 
 function renderHeute() {
   const v = $("#view-heute");
-  if (state.doneToday) {
-    v.innerHTML = `
-      <div class="card done-hero">
-        <div class="big">🎉</div>
-        <h2>Mutprobe erledigt!</h2>
-        <p class="muted">Für heute bist du durch. Das Leben darf jetzt wieder unernst sein.</p>
-        <p style="margin-top:12px">Morgen wartet die nächste Challenge.</p>
-      </div>`;
-    return;
-  }
-  const current = CHALLENGES.find((c) => c.id === state.currentChallengeId);
-  if (!current) {
-    // Auswahl aus 3 Vorschlägen
-    const picks = state.todayPicks
-      .map((id) => CHALLENGES.find((c) => c.id === id))
-      .filter(Boolean);
-    v.innerHTML = `<h2>Wähle deine heutige Mutprobe</h2>`;
+  const ringPct = state.doneToday ? 1 : 0.04;
+  const ringSub = state.doneToday
+    ? (state.streak > 1 ? `Geschlossen. Serie: ${state.streak} Tage.` : "Geschlossen. Deine Serie beginnt.")
+    : (state.streak > 0 ? `Noch offen. Serie: ${state.streak} ${state.streak === 1 ? "Tag" : "Tage"}.` : "Noch offen. Eine Mutprobe schließt ihn.");
+
+  let html = heuteHeader();
+  html += `<div class="card ring-card">
+    ${ringSvg(ringPct, 80, 30, 9, "var(--accent)")}
+    <div><p class="r-title">Mut-Ring</p><p class="r-sub">${ringSub}</p></div>
+  </div>`;
+
+  const current = state.currentChallengeId ? findChallenge(state.currentChallengeId) : null;
+
+  if (current) {
+    const isBoss = state.currentIsBoss;
+    const baseXp = isBoss ? XP_BY_STUFE[3] * BOSS_MULTIPLIER : XP_BY_STUFE[current.stufe];
+    html += `<p class="section-label">${isBoss ? "Wochen-Boss" : "Deine Mutprobe"}</p>
+      <div class="card">
+        <span class="stufe-tag ${isBoss ? "boss-tag" : ""}">${isBoss ? `Boss · ${baseXp} XP` : `Stufe ${current.stufe} · ${baseXp} XP`}</span>
+        <p class="c-text">${current.text}</p>
+        ${current.tipp ? `<p class="c-tipp">${current.tipp}</p>` : ""}
+        ${state.currentWette ? `<p class="wette-note">Deine Wette: „${escapeHtml(state.currentWette.text)}“ – ${state.currentWette.prob} % sicher, sagt deine Angst.</p>` : ""}
+      </div>
+      <button class="btn filled" id="btn-done">Geschafft</button>
+      ${(!isBoss && current.korbMoeglich) || isBoss ? `<button class="btn tint" id="btn-korb">Korb kassiert · Bonus sichern</button>` : ""}
+      <button class="btn plain" id="btn-skip">Heute nicht geschafft</button>
+      <button class="btn plain subtle" id="btn-change">${isBoss ? "Boss verschieben" : "Andere Challenge wählen"}</button>`;
+  } else if (state.doneToday) {
+    html += `<div class="card done-hero">
+      <h2>Mutprobe erledigt</h2>
+      <p>Für heute bist du durch. Das Leben darf jetzt wieder unernst sein.</p>
+    </div>`;
+  } else {
+    html += `<p class="section-label">Wähle deine Mutprobe</p>`;
+    const picks = state.todayPicks.map((id) => CHALLENGES.find((c) => c.id === id)).filter(Boolean);
     picks.forEach((c) => {
-      const btn = document.createElement("button");
-      btn.className = "card pick-card";
-      btn.innerHTML = `
+      html += `<button class="card pick-card" data-pick="${c.id}">
         <span class="stufe-tag">Stufe ${c.stufe} · ${XP_BY_STUFE[c.stufe]} XP</span>
-        <div class="c-text">${c.text}</div>`;
-      btn.addEventListener("click", () => {
-        state.currentChallengeId = c.id;
-        saveState();
-        render();
-      });
-      v.appendChild(btn);
+        <p class="c-text">${c.text}</p>
+      </button>`;
     });
-    const reroll = document.createElement("button");
-    reroll.className = "btn ghost";
-    reroll.textContent = "🎲 Andere Vorschläge";
-    reroll.addEventListener("click", () => {
-      state.todayPicks = pickChallenges(3);
-      saveState();
-      render();
-    });
-    v.appendChild(reroll);
-    return;
+    html += `<button class="btn plain subtle" id="btn-reroll">Neu mischen</button>`;
   }
-  // Aktive Challenge
-  v.innerHTML = `
-    <h2>Deine heutige Mutprobe</h2>
-    <div class="card challenge-card">
-      <span class="stufe-tag">Stufe ${current.stufe} · ${XP_BY_STUFE[current.stufe]} XP</span>
-      <div class="c-text">${current.text}</div>
-      ${current.tipp ? `<div class="c-tipp">💡 ${current.tipp}</div>` : ""}
-    </div>
-    <button class="btn success" id="btn-done">✅ Geschafft!</button>
-    ${current.korbMoeglich ? `<button class="btn korb" id="btn-korb">🧺 Korb kassiert (+${XP_KORB_BONUS} Bonus-XP!)</button>` : ""}
-    <button class="btn ghost" id="btn-skip">Heute nicht geschafft – ehrlich gesagt</button>
-    <button class="btn ghost small" id="btn-change">↩︎ Andere Challenge wählen</button>`;
-  $("#btn-done").addEventListener("click", () => openReflect(current.id, "done"));
-  const korbBtn = $("#btn-korb");
-  if (korbBtn) korbBtn.addEventListener("click", () => openReflect(current.id, "korb"));
-  $("#btn-skip").addEventListener("click", () => openReflect(current.id, "skip"));
-  $("#btn-change").addEventListener("click", () => {
+
+  // Wochen-Boss (verfügbar, solange keine Challenge aktiv ist)
+  const boss = bossForWeek();
+  if (boss && state.bossDoneWeek !== weekKey() && !current) {
+    html += `<p class="section-label">Wochen-Boss</p>
+      <button class="card pick-card" data-boss="${boss.id}">
+        <span class="stufe-tag boss-tag">Boss · ${XP_BY_STUFE[3] * BOSS_MULTIPLIER} XP</span>
+        <p class="c-text">${boss.text}</p>
+        ${boss.tipp ? `<p class="c-tipp">${boss.tipp}</p>` : ""}
+      </button>`;
+  }
+
+  v.innerHTML = html;
+
+  v.querySelectorAll("[data-pick]").forEach((el) => el.addEventListener("click", () => acceptChallenge(el.dataset.pick, false)));
+  v.querySelectorAll("[data-boss]").forEach((el) => el.addEventListener("click", () => acceptChallenge(el.dataset.boss, true)));
+  const reroll = $("#btn-reroll");
+  if (reroll) reroll.addEventListener("click", () => {
+    state.todayPicks = pickChallenges(3, state.todayPicks);
+    saveState();
+    render();
+  });
+  const bDone = $("#btn-done"), bKorb = $("#btn-korb"), bSkip = $("#btn-skip"), bChange = $("#btn-change");
+  if (bDone) bDone.addEventListener("click", () => openReflect("done"));
+  if (bKorb) bKorb.addEventListener("click", () => openReflect("korb"));
+  if (bSkip) bSkip.addEventListener("click", () => openReflect("skip"));
+  if (bChange) bChange.addEventListener("click", () => {
     state.currentChallengeId = null;
+    state.currentIsBoss = false;
+    state.currentWette = null;
     saveState();
     render();
   });
@@ -204,39 +264,90 @@ function renderHeute() {
 function renderFortschritt() {
   const v = $("#view-fortschritt");
   const lvl = currentLevel();
-  v.innerHTML = `
-    <h2>Dein Fortschritt</h2>
-    <div class="stats-grid">
-      <div class="stat"><div class="num">${state.xp}</div><div class="lbl">XP gesamt</div></div>
-      <div class="stat"><div class="num">${state.history.length}</div><div class="lbl">Mutproben</div></div>
-      <div class="stat"><div class="num">🧺 ${state.koerbe}</div><div class="lbl">Körbe gesammelt</div></div>
-      <div class="stat"><div class="num">🔥 ${state.bestStreak}</div><div class="lbl">Beste Serie</div></div>
+  const next = LEVELS[lvl + 1];
+
+  // Ring-Trio: Mut (7 Tage), Wetten, Serie
+  const last7 = new Set();
+  for (let i = 0; i < 7; i++) last7.add(daysAgoStr(i));
+  const activeDays = new Set(state.history.filter((h) => h.outcome !== "skip" && last7.has(h.date)).map((h) => h.date));
+  const mutPct = activeDays.size / 7;
+  const completions = state.history.filter((h) => h.outcome !== "skip");
+  const wetten = completions.filter((h) => h.wette);
+  const wettenPct = completions.length ? wetten.length / completions.length : 0;
+  const seriePct = state.bestStreak ? Math.min(1, state.streak / Math.max(7, state.bestStreak)) : 0;
+
+  const c30 = 2 * Math.PI * 30, c21 = 2 * Math.PI * 21, c12 = 2 * Math.PI * 12;
+  const trioSvg = `<svg viewBox="0 0 80 80" aria-hidden="true">
+    <circle cx="40" cy="40" r="30" fill="none" stroke="var(--ring-track)" stroke-width="7"></circle>
+    <circle cx="40" cy="40" r="30" fill="none" stroke="var(--accent)" stroke-width="7" stroke-linecap="round"
+      stroke-dasharray="${c30.toFixed(1)}" stroke-dashoffset="${(c30 * (1 - Math.max(0.02, mutPct))).toFixed(1)}" transform="rotate(-90 40 40)"></circle>
+    <circle cx="40" cy="40" r="21" fill="none" stroke="var(--ring-track)" stroke-width="7"></circle>
+    <circle cx="40" cy="40" r="21" fill="none" stroke="var(--green)" stroke-width="7" stroke-linecap="round"
+      stroke-dasharray="${c21.toFixed(1)}" stroke-dashoffset="${(c21 * (1 - Math.max(0.02, wettenPct))).toFixed(1)}" transform="rotate(-90 40 40)"></circle>
+    <circle cx="40" cy="40" r="12" fill="none" stroke="var(--ring-track)" stroke-width="7"></circle>
+    <circle cx="40" cy="40" r="12" fill="none" stroke="var(--blue)" stroke-width="7" stroke-linecap="round"
+      stroke-dasharray="${c12.toFixed(1)}" stroke-dashoffset="${(c12 * (1 - Math.max(0.02, seriePct))).toFixed(1)}" transform="rotate(-90 40 40)"></circle>
+  </svg>`;
+
+  // Angst-Trefferquote
+  const bewertete = state.history.filter((h) => h.wette && h.wette.eingetreten);
+  const daneben = bewertete.filter((h) => h.wette.eingetreten === "nein").length;
+  const quoteText = bewertete.length
+    ? `Deine Angst lag ${daneben} von ${bewertete.length} Mal daneben.`
+    : "Platziere Wetten gegen deine Angst – hier siehst du, wie oft sie danebenliegt.";
+
+  let html = `<h1>Fortschritt</h1>
+    <div class="card trio-card">
+      ${trioSvg}
+      <div class="trio-legend">
+        <p><span class="dot" style="background:var(--accent)"></span><b>Mut</b> · ${activeDays.size} von 7 Tagen</p>
+        <p><span class="dot" style="background:var(--green)"></span><b>Wetten</b> · ${wetten.length} platziert</p>
+        <p><span class="dot" style="background:var(--blue)"></span><b>Serie</b> · ${state.streak} ${state.streak === 1 ? "Tag" : "Tage"}</p>
+      </div>
     </div>
-    <h2>Abzeichen</h2>
-    <div class="badge-grid" id="badge-grid"></div>
-    <h2>Track</h2>
-    <div class="card">
-      <p class="small muted" style="margin-bottom:8px">Aktuell: ${TRACKS[state.track].emoji} ${TRACKS[state.track].name} · Level ${lvl + 1}</p>
-      <button class="btn ghost" id="btn-switch-track">Track wechseln</button>
-      <button class="btn ghost" id="btn-reset" style="color:var(--danger)">Alles zurücksetzen</button>
+    <div class="stats-grid">
+      <div class="stat"><p class="num">Lv. ${lvl + 1}</p><p class="lbl">${LEVELS[lvl].name}</p></div>
+      <div class="stat"><p class="num">${state.xp}${next ? ` / ${next.xp}` : ""}</p><p class="lbl">XP${next ? " bis zum nächsten Level" : " · Max-Level"}</p></div>
+      <div class="stat"><p class="num">${completions.length}</p><p class="lbl">Mutproben</p></div>
+      <div class="stat"><p class="num">${state.koerbe}</p><p class="lbl">Körbe kassiert</p></div>
+    </div>
+    <p class="section-label">Wette gegen die Angst</p>
+    <div class="card"><p style="font-size:15px">${quoteText}</p>
+      ${bewertete.length ? `<p class="c-tipp">Trefferquote deiner Angst: ${Math.round(((bewertete.length - daneben) / bewertete.length) * 100)} % – sie ist ein schlechter Prophet.</p>` : ""}
+    </div>
+    <p class="section-label">Angstkurve</p>
+    <div class="card chart-card">${fearChart()}</div>
+    <p class="section-label">Abzeichen</p>
+    <div class="list-group" id="badge-list"></div>
+    <p class="section-label">Einstellungen</p>
+    <div class="list-group">
+      <div class="list-row"><div class="row-main"><p class="row-title">Streak-Joker</p><p class="row-sub">Fängt einen verpassten Tag ab. Alle 7 Mutproben gibt es einen.</p></div><span class="row-value">${state.jokers} von 2</span></div>
+      <button class="list-row" id="btn-switch-track"><div class="row-main"><p class="row-title">Track wechseln</p><p class="row-sub">Aktuell: ${TRACKS[state.track].name}</p></div></button>
+      <button class="list-row" id="btn-reset"><div class="row-main"><p class="row-title danger">Alles zurücksetzen</p></div></button>
     </div>`;
-  const grid = $("#badge-grid");
+
+  v.innerHTML = html;
+
+  const list = $("#badge-list");
   BADGES.forEach((b) => {
     const earned = b.check(state);
-    const el = document.createElement("div");
-    el.className = "badge" + (earned ? "" : " locked");
-    el.innerHTML = `<span class="b-emoji">${b.emoji}</span>${b.name}`;
-    grid.appendChild(el);
+    const row = document.createElement("div");
+    row.className = "list-row" + (earned ? "" : " locked");
+    row.innerHTML = `<svg class="badge-check" viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="12" cy="12" r="10" fill="none" stroke="${earned ? "var(--accent)" : "var(--text-3)"}" stroke-width="1.7"/>
+        ${earned ? '<path d="M8 12.5l2.6 2.6L16 9.5" fill="none" stroke="var(--accent)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>' : ""}
+      </svg>
+      <div class="row-main"><p class="row-title">${b.name}</p><p class="row-sub">${b.desc}</p></div>`;
+    list.appendChild(row);
   });
+
   $("#btn-switch-track").addEventListener("click", () => {
     state.track = null;
-    state.currentChallengeId = null;
-    state.todayKey = null;
     saveState();
     render();
   });
   $("#btn-reset").addEventListener("click", () => {
-    if (confirm("Wirklich ALLES löschen? XP, Körbe, Journal – alles weg.")) {
+    if (confirm("Wirklich alles löschen? XP, Körbe, Journal – alles weg.")) {
       state = defaultState();
       saveState();
       render();
@@ -244,116 +355,323 @@ function renderFortschritt() {
   });
 }
 
+function fearChart() {
+  const data = state.history.filter((h) => h.outcome !== "skip" && typeof h.fearBefore === "number").slice(-20);
+  if (data.length < 2) {
+    return `<p style="font-size:15px;color:var(--text-3)">Nach ein paar Mutproben siehst du hier, wie deine Angst über die Zeit sinkt.</p>`;
+  }
+  const W = 320, H = 120, pad = 8;
+  const x = (i) => pad + (i * (W - 2 * pad)) / (data.length - 1);
+  const y = (val) => H - pad - (val / 10) * (H - 2 * pad);
+  const line = (key) => data.map((h, i) => `${x(i).toFixed(1)},${y(h[key]).toFixed(1)}`).join(" ");
+  return `<svg viewBox="0 0 ${W} ${H}" aria-label="Angstverlauf">
+      <line x1="${pad}" y1="${y(0)}" x2="${W - pad}" y2="${y(0)}" stroke="var(--sep)" stroke-width="0.5"/>
+      <line x1="${pad}" y1="${y(5)}" x2="${W - pad}" y2="${y(5)}" stroke="var(--sep)" stroke-width="0.5" stroke-dasharray="3 4"/>
+      <line x1="${pad}" y1="${y(10)}" x2="${W - pad}" y2="${y(10)}" stroke="var(--sep)" stroke-width="0.5"/>
+      <polyline points="${line("fearBefore")}" fill="none" stroke="var(--accent)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+      <polyline points="${line("fearAfter")}" fill="none" stroke="var(--blue)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <div class="chart-legend">
+      <span><span class="dot" style="background:var(--accent)"></span>Angst vorher</span>
+      <span><span class="dot" style="background:var(--blue)"></span>Angst nachher</span>
+    </div>`;
+}
+
 function renderJournal() {
   const v = $("#view-journal");
-  v.innerHTML = `<h2>Dein Journal</h2>`;
+  let html = `<h1>Journal</h1>`;
   if (state.history.length === 0) {
-    v.innerHTML += `<div class="card"><p class="muted">Noch keine Einträge. Deine erste Mutprobe wartet im „Heute“-Tab. 🎯</p></div>`;
+    html += `<div class="card"><p style="font-size:15px;color:var(--text-3)">Noch keine Einträge. Deine erste Mutprobe wartet im Tab „Heute“.</p></div>`;
+    v.innerHTML = html;
     return;
   }
-  const outcomeLabel = { done: "✅ Geschafft", korb: "🧺 Korb kassiert", skip: "⏭️ Ausgelassen" };
+  const outcomeLabel = { done: "Geschafft", korb: "Korb kassiert", skip: "Ausgelassen" };
   [...state.history].reverse().forEach((h) => {
-    const c = CHALLENGES.find((x) => x.id === h.challengeId);
-    const el = document.createElement("div");
-    el.className = "journal-entry";
-    el.innerHTML = `
-      <div class="j-head">
-        <span>${h.date}</span>
-        <span class="outcome-${h.outcome}">${outcomeLabel[h.outcome]} · +${h.xp} XP</span>
-      </div>
-      <div class="j-challenge">${c ? c.text : "(Challenge)"} </div>
-      <div class="j-text">${escapeHtml(h.text)}</div>
-      <div class="j-fear">Angst: ${h.fearBefore} → ${h.fearAfter}</div>`;
-    v.appendChild(el);
+    const c = findChallenge(h.challengeId);
+    let wetteLine = "";
+    if (h.wette && h.wette.eingetreten) {
+      const map = { nein: `<span class="won">Angst lag daneben</span>`, teil: "Befürchtung teilweise eingetreten", ja: "Befürchtung eingetreten" };
+      wetteLine = `<p class="j-meta">Wette: „${escapeHtml(h.wette.text)}“ (${h.wette.prob} %) · ${map[h.wette.eingetreten]}</p>`;
+    }
+    html += `<div class="journal-entry">
+      <div class="j-head"><span>${fmtDate(h.date)}${h.isBoss ? " · Wochen-Boss" : ""}</span>
+        <span class="outcome-${h.outcome}">${outcomeLabel[h.outcome]} · +${h.xp} XP</span></div>
+      <p class="j-challenge">${c ? c.text : "Challenge"}</p>
+      <p class="j-text">${escapeHtml(h.text)}</p>
+      ${typeof h.fearBefore === "number" ? `<p class="j-meta">Angst: ${h.fearBefore} → ${h.fearAfter}</p>` : ""}
+      ${wetteLine}
+    </div>`;
   });
+  v.innerHTML = html;
 }
 
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
+// ── Challenge-Annahme & Wette ───────────────────────────
+function acceptChallenge(id, isBoss) {
+  state.currentChallengeId = id;
+  state.currentIsBoss = isBoss;
+  state.currentWette = null;
+  saveState();
+  $("#wette-text").value = "";
+  $("#wette-prob").value = 50;
+  $("#wette-prob-val").textContent = "50 %";
+  $("#fear-before").value = 5;
+  $("#fear-before-val").textContent = "5/10";
+  $("#wette-modal").classList.remove("hidden");
 }
+function closeWette() { $("#wette-modal").classList.add("hidden"); }
 
-// ── Reflexion & XP ──────────────────────────────────────
-function openReflect(challengeId, outcome) {
-  pendingOutcome = { challengeId, outcome };
+// ── Reflexion ───────────────────────────────────────────
+function openReflect(outcome) {
+  pendingOutcome = outcome;
   const titles = {
-    done: "Stark! Kurz reflektieren 💪",
-    korb: "Ein Korb! Glückwunsch, du lebst noch 🧺",
-    skip: "Ehrlichkeit zählt auch 🤍",
+    done: "Stark. Kurz reflektieren",
+    korb: "Ein Korb. Du lebst noch",
+    skip: "Ehrlich bleibt ehrlich",
   };
-  $("#modal-title").textContent = titles[outcome];
+  $("#reflect-title").textContent = titles[outcome];
   $("#reflect-text").value = "";
-  $("#modal-error").classList.add("hidden");
-  $("#modal").classList.remove("hidden");
+  $("#reflect-error").classList.add("hidden");
+  const hasWette = !!state.currentWette && outcome !== "skip";
+  $("#wette-check").classList.toggle("hidden", !hasWette);
+  $("#fear-before2-wrap").classList.toggle("hidden", !!state.currentWette);
+  if (hasWette) {
+    $("#wette-recap-text").textContent = `„${state.currentWette.text}“ – ${state.currentWette.prob} % sicher.`;
+    document.querySelectorAll("#eingetreten-seg button").forEach((b) => b.classList.remove("sel"));
+  }
+  $("#fear-after").value = state.currentWette ? state.currentWette.fearBefore : 5;
+  $("#fear-after-val").textContent = `${$("#fear-after").value}/10`;
+  $("#fear-before2").value = 5;
+  $("#fear-before2-val").textContent = "5/10";
+  $("#reflect-modal").classList.remove("hidden");
 }
-
 function closeReflect() {
-  $("#modal").classList.add("hidden");
+  $("#reflect-modal").classList.add("hidden");
   pendingOutcome = null;
+  stopMic();
 }
 
 function saveReflect() {
   if (!pendingOutcome) return;
+  const outcome = pendingOutcome;
   const text = $("#reflect-text").value.trim();
+  const err = $("#reflect-error");
   if (text.length < 5) {
-    $("#modal-error").classList.remove("hidden");
+    err.textContent = "Schreib mindestens einen kurzen Satz – Ehrlichkeit ist der Deal.";
+    err.classList.remove("hidden");
     return;
   }
-  const { challengeId, outcome } = pendingOutcome;
-  const c = CHALLENGES.find((x) => x.id === challengeId);
+  const hasWette = !!state.currentWette && outcome !== "skip";
+  let eingetreten = null;
+  if (hasWette) {
+    const sel = document.querySelector("#eingetreten-seg button.sel");
+    if (!sel) {
+      err.textContent = "Sag kurz: Ist deine Befürchtung eingetreten?";
+      err.classList.remove("hidden");
+      return;
+    }
+    eingetreten = sel.dataset.val;
+  }
+
+  const challengeId = state.currentChallengeId;
+  const isBoss = state.currentIsBoss;
+  const c = findChallenge(challengeId);
+  const stufe = isBoss ? 3 : (c ? c.stufe : 1);
+
   let xp = 0;
-  if (outcome === "done") xp = XP_BY_STUFE[c.stufe];
-  if (outcome === "korb") { xp = XP_BY_STUFE[c.stufe] + XP_KORB_BONUS; state.koerbe += 1; }
-  if (outcome === "skip") xp = XP_EHRLICHKEIT;
+  if (outcome === "done" || outcome === "korb") {
+    xp = XP_BY_STUFE[stufe] * (isBoss ? BOSS_MULTIPLIER : 1);
+    if (outcome === "korb") xp += XP_KORB_BONUS;
+    if (hasWette) xp += XP_WETTE_BONUS;
+  } else {
+    xp = state.lastSkipXpDay === todayStr() ? 0 : XP_EHRLICHKEIT;
+    state.lastSkipXpDay = todayStr();
+  }
+
+  const fearBefore = state.currentWette ? state.currentWette.fearBefore : Number($("#fear-before2").value);
+  const fearAfter = Number($("#fear-after").value);
 
   const prevLevel = currentLevel();
   const prevBadges = BADGES.filter((b) => b.check(state)).map((b) => b.id);
 
-  // Streak aktualisieren
+  const entry = {
+    date: todayStr(), challengeId, isBoss, outcome, text,
+    fearBefore, fearAfter, xp,
+    wette: state.currentWette ? { text: state.currentWette.text, prob: state.currentWette.prob, eingetreten } : null,
+  };
+  state.history.push(entry);
+  state.xp += xp;
+
+  let jokerUsed = false, jokerEarned = false, truhe = null;
+
+  if (outcome === "skip") {
+    state.currentChallengeId = null;
+    state.currentIsBoss = false;
+    state.currentWette = null;
+    saveState();
+    closeReflect();
+    render();
+    showToast(xp > 0 ? `+${xp} XP für Ehrlichkeit. Der Tag ist noch nicht vorbei.` : "Notiert. Der Tag ist noch nicht vorbei.");
+    return;
+  }
+
+  if (outcome === "korb") state.koerbe += 1;
+
+  // Streak (mit Joker)
   const today = todayStr();
   if (state.lastDoneDay !== today) {
-    state.streak = state.lastDoneDay === yesterdayStr() ? state.streak + 1 : 1;
+    if (state.lastDoneDay === daysAgoStr(1)) {
+      state.streak += 1;
+    } else if (state.lastDoneDay === daysAgoStr(2) && state.jokers > 0) {
+      state.jokers -= 1;
+      state.streak += 1;
+      jokerUsed = true;
+    } else {
+      state.streak = 1;
+    }
     state.bestStreak = Math.max(state.bestStreak, state.streak);
     state.lastDoneDay = today;
   }
 
-  state.history.push({
-    date: today,
-    challengeId,
-    outcome,
-    text,
-    fearBefore: Number($("#fear-before").value),
-    fearAfter: Number($("#fear-after").value),
-    xp,
-  });
-  state.xp += xp;
-  state.doneToday = true;
+  // Joker verdienen: alle 7 Mutproben
+  const completedCount = state.history.filter((h) => h.outcome !== "skip").length;
+  if (completedCount >= state.jokerEarnedBasis + 7) {
+    state.jokerEarnedBasis = completedCount;
+    if (state.jokers < 2) { state.jokers += 1; jokerEarned = true; }
+  }
+
+  // Mut-Truhe
+  const roll = Math.random();
+  if (roll < 0.55) {
+    const bonus = 5 + Math.floor(Math.random() * 11);
+    state.xp += bonus;
+    truhe = { type: "xp", text: `+${bonus} Bonus-XP aus der Truhe` };
+  } else if (roll < 0.9 || state.jokers >= 2) {
+    truhe = { type: "quote", text: QUOTES[Math.floor(Math.random() * QUOTES.length)] };
+  } else {
+    state.jokers += 1;
+    truhe = { type: "joker", text: "Ein Streak-Joker. Er fängt einen verpassten Tag ab." };
+  }
+
+  if (isBoss) {
+    state.bossDoneWeek = weekKey();
+  } else {
+    state.doneToday = true;
+  }
   state.currentChallengeId = null;
+  state.currentIsBoss = false;
+  const wetteWon = eingetreten === "nein";
+  state.currentWette = null;
   saveState();
   closeReflect();
   render();
 
-  // Feedback
+  // Feier-Overlay
   const newLevel = currentLevel();
   const newBadges = BADGES.filter((b) => b.check(state) && !prevBadges.includes(b.id));
-  if (newLevel > prevLevel) {
-    showToast(`🎖️ Level up! Du bist jetzt: ${LEVELS[newLevel].name}`, 3500);
-  } else if (newBadges.length > 0) {
-    showToast(`${newBadges[0].emoji} Neues Abzeichen: ${newBadges[0].name}!`, 3500);
-  } else {
-    showToast(`+${xp} XP kassiert!`);
+  let sub = "";
+  if (newLevel > prevLevel) sub = `Level ${newLevel + 1}: ${LEVELS[newLevel].name}`;
+  else if (newBadges.length) sub = `Neues Abzeichen: ${newBadges[0].name}`;
+  else if (jokerUsed) sub = "Streak-Joker eingesetzt – Serie gerettet.";
+  else if (jokerEarned) sub = "Streak-Joker verdient.";
+  else if (wetteWon) sub = "Deine Angst lag daneben. Wieder mal.";
+  else if (isBoss) sub = "Wochen-Boss besiegt.";
+  celebrate(xp, sub, truhe);
+}
+
+// ── Feier-Overlay ───────────────────────────────────────
+function celebrate(xp, sub, truhe) {
+  const overlay = $("#celebrate");
+  const ring = $("#big-ring-fill");
+  const xpEl = $("#cele-xp");
+  $("#cele-sub").textContent = sub;
+  const chest = $("#chest");
+  const reward = $("#chest-reward");
+  reward.classList.add("hidden");
+  reward.textContent = "";
+  chest.classList.toggle("hidden", !truhe);
+  chest.onclick = () => {
+    chest.classList.add("hidden");
+    reward.textContent = truhe.text;
+    reward.classList.remove("hidden");
+  };
+  ring.style.transition = "none";
+  ring.style.strokeDashoffset = "289";
+  overlay.classList.remove("hidden");
+  spawnConfetti();
+  requestAnimationFrame(() => {
+    ring.style.transition = "stroke-dashoffset 0.9s cubic-bezier(0.22, 1, 0.36, 1)";
+    ring.style.strokeDashoffset = "0";
+  });
+  // XP hochzählen
+  const start = performance.now(), dur = 700;
+  function tick(now) {
+    const p = Math.min(1, (now - start) / dur);
+    xpEl.textContent = `+${Math.round(xp * p)} XP`;
+    if (p < 1) requestAnimationFrame(tick);
   }
+  requestAnimationFrame(tick);
+}
+function spawnConfetti() {
+  const layer = $("#confetti-layer");
+  layer.innerHTML = "";
+  const colors = ["#FF9500", "#FFD60A", "#30D158", "#64D2FF", "#FF375F"];
+  for (let i = 0; i < 28; i++) {
+    const el = document.createElement("span");
+    el.className = "confetto";
+    el.style.left = `${Math.random() * 100}%`;
+    el.style.background = colors[i % colors.length];
+    el.style.animationDuration = `${900 + Math.random() * 700}ms`;
+    el.style.animationDelay = `${Math.random() * 250}ms`;
+    el.style.transform = `rotate(${Math.random() * 360}deg)`;
+    layer.appendChild(el);
+  }
+  setTimeout(() => { layer.innerHTML = ""; }, 2200);
+}
+
+// ── Spracheingabe ───────────────────────────────────────
+function setupMic() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const btn = $("#mic-btn");
+  if (!SR) return;
+  btn.classList.remove("hidden");
+  btn.addEventListener("click", () => {
+    if (recognition) { stopMic(); return; }
+    recognition = new SR();
+    recognition.lang = "de-DE";
+    recognition.interimResults = false;
+    recognition.continuous = true;
+    recognition.onresult = (e) => {
+      let txt = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        if (e.results[i].isFinal) txt += e.results[i][0].transcript;
+      }
+      if (txt) {
+        const ta = $("#reflect-text");
+        ta.value = (ta.value ? ta.value.trim() + " " : "") + txt.trim();
+      }
+    };
+    recognition.onend = () => { recognition = null; btn.classList.remove("rec"); };
+    recognition.onerror = () => { recognition = null; btn.classList.remove("rec"); };
+    try {
+      recognition.start();
+      btn.classList.add("rec");
+    } catch (e) { recognition = null; }
+  });
+}
+function stopMic() {
+  if (recognition) { try { recognition.stop(); } catch (e) {} recognition = null; }
+  const btn = $("#mic-btn");
+  if (btn) btn.classList.remove("rec");
 }
 
 // ── Event-Verkabelung ───────────────────────────────────
 function init() {
-  // Onboarding-Schritte
   document.querySelectorAll("[data-next]").forEach((btn) => {
     btn.addEventListener("click", () => {
       document.querySelectorAll(".onb-step").forEach((s) => s.classList.add("hidden"));
       document.querySelector(`.onb-step[data-step="${btn.dataset.next}"]`).classList.remove("hidden");
     });
   });
-  // Tab-Navigation
   document.querySelectorAll(".nav-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
       document.querySelectorAll(".nav-btn").forEach((b) => b.classList.remove("active"));
@@ -362,13 +680,60 @@ function init() {
       $(`#view-${btn.dataset.view}`).classList.remove("hidden");
     });
   });
-  // Modal
-  $("#modal-save").addEventListener("click", saveReflect);
-  $("#modal-cancel").addEventListener("click", closeReflect);
-  $("#fear-before").addEventListener("input", (e) => { $("#fear-before-val").textContent = e.target.value; });
-  $("#fear-after").addEventListener("input", (e) => { $("#fear-after-val").textContent = e.target.value; });
 
+  // Wette-Modal
+  $("#wette-prob").addEventListener("input", (e) => { $("#wette-prob-val").textContent = `${e.target.value} %`; });
+  $("#fear-before").addEventListener("input", (e) => { $("#fear-before-val").textContent = `${e.target.value}/10`; });
+  $("#wette-place").addEventListener("click", () => {
+    const text = $("#wette-text").value.trim();
+    if (text.length < 3) {
+      state.currentWette = null;
+    } else {
+      state.currentWette = { text, prob: Number($("#wette-prob").value), fearBefore: Number($("#fear-before").value) };
+    }
+    saveState();
+    closeWette();
+    render();
+  });
+  $("#wette-skip").addEventListener("click", () => {
+    state.currentWette = null;
+    saveState();
+    closeWette();
+    render();
+  });
+  $("#wette-cancel").addEventListener("click", () => {
+    state.currentChallengeId = null;
+    state.currentIsBoss = false;
+    state.currentWette = null;
+    saveState();
+    closeWette();
+    render();
+  });
+
+  // Reflexions-Modal
+  $("#fear-after").addEventListener("input", (e) => { $("#fear-after-val").textContent = `${e.target.value}/10`; });
+  $("#fear-before2").addEventListener("input", (e) => { $("#fear-before2-val").textContent = `${e.target.value}/10`; });
+  document.querySelectorAll("#eingetreten-seg button").forEach((b) => {
+    b.addEventListener("click", () => {
+      document.querySelectorAll("#eingetreten-seg button").forEach((x) => x.classList.remove("sel"));
+      b.classList.add("sel");
+    });
+  });
+  $("#reflect-save").addEventListener("click", saveReflect);
+  $("#reflect-cancel").addEventListener("click", closeReflect);
+
+  // Feier-Overlay
+  $("#cele-done").addEventListener("click", () => $("#celebrate").classList.add("hidden"));
+
+  setupMic();
   render();
+}
+
+// Service Worker (nur online-Version, nicht im lokalen Test)
+if ("serviceWorker" in navigator && !["localhost", "127.0.0.1"].includes(location.hostname)) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("./sw.js").catch(() => {});
+  });
 }
 
 init();
