@@ -18,6 +18,16 @@ const QUIZ = [
     { t: "Ab und zu", pts: 1 },
     { t: "So gut wie nie", pts: 0 },
   ]},
+  { q: "In einer Gruppe etwas sagen, wenn alle zuhören?", a: [
+    { t: "Mache ich gern", pts: 2 },
+    { t: "Wenn es sein muss, geht das", pts: 1 },
+    { t: "Ich bleibe lieber still", pts: 0 },
+  ]},
+  { q: "Wie gehst du mit einem Nein oder einer Abfuhr um?", a: [
+    { t: "Schulterzucken – passiert", pts: 2 },
+    { t: "Nagt eine Weile an mir", pts: 1 },
+    { t: "Trifft mich richtig hart", pts: 0 },
+  ]},
 ];
 
 const defaultState = () => ({
@@ -30,7 +40,7 @@ const defaultState = () => ({
   todayKey: null,
   todayPicks: [],
   todayCompleted: [],
-  startLevel: null,
+  startLevels: {},           // Einstufung pro Track – Ängste sind bereichsspezifisch
   currentChallengeId: null,
   currentIsBoss: false,
   currentWette: null,        // { text, prob, fearBefore }
@@ -50,7 +60,14 @@ let recognition = null;
 function loadState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return { ...defaultState(), ...JSON.parse(raw) };
+    if (raw) {
+      const s = { ...defaultState(), ...JSON.parse(raw) };
+      // Migration: alte globale Einstufung auf den aktuellen Track übertragen
+      if (s.startLevel != null && s.track && s.startLevels[s.track] == null) {
+        s.startLevels[s.track] = s.startLevel;
+      }
+      return s;
+    }
   } catch (e) { /* korrupte Daten → frisch starten */ }
   return defaultState();
 }
@@ -91,7 +108,8 @@ function currentLevel() {
   return lvl;
 }
 function unlockedStufen() {
-  const lvl = Math.max(currentLevel(), state.startLevel || 0);
+  const sl = ((state.startLevels || {})[state.track]) ?? 0;
+  const lvl = Math.max(currentLevel(), sl);
   if (lvl >= 4) return [1, 2, 3];
   if (lvl >= 2) return [1, 2];
   return [1];
@@ -206,7 +224,8 @@ function renderTrackList() {
         state.currentWette = null;
       }
       saveState();
-      if (state.startLevel === null) showQuiz();
+      // Jeder Track hat seine eigene Einstufung – Ängste sind bereichsspezifisch
+      if (((state.startLevels || {})[key]) == null) showQuiz();
       else render();
     });
     list.appendChild(btn);
@@ -233,12 +252,14 @@ function showQuiz() {
     }));
   };
   const finish = () => {
-    state.startLevel = score >= 5 ? 4 : score >= 2 ? 2 : 0;
+    const sl = score >= 8 ? 4 : score >= 4 ? 2 : 0;
+    if (!state.startLevels) state.startLevels = {};
+    state.startLevels[state.track] = sl;
     if (state.todayKey === todayStr()) state.todayPicks = pickChallenges(3);
     saveState();
     render();
     const maxStufe = Math.max(...unlockedStufen());
-    showToast(`Dein Start: ${LEVELS[state.startLevel].name} · Aufgaben bis Stufe ${maxStufe}`, 4200);
+    showToast(`Dein Start in ${TRACKS[state.track].name}: Aufgaben bis Stufe ${maxStufe}`, 4200);
   };
   step();
 }
@@ -303,9 +324,11 @@ function renderHeute() {
   // Wochen-Boss (verfügbar, solange keine Challenge aktiv ist)
   const boss = bossForWeek();
   if (boss && state.bossDoneWeek !== weekKey() && !current) {
+    const daysLeft = 7 - ((new Date().getDay() + 6) % 7);
+    const timer = daysLeft === 1 ? "Nur noch heute" : `Noch ${daysLeft} Tage`;
     html += `<p class="section-label">Wochen-Boss</p>
       <button class="card pick-card" data-boss="${boss.id}">
-        <span class="stufe-tag boss-tag">Boss · ${XP_BY_STUFE[3] * BOSS_MULTIPLIER} XP</span>
+        <span class="stufe-tag boss-tag">Boss · ${XP_BY_STUFE[3] * BOSS_MULTIPLIER} XP</span><span class="boss-timer">${timer}</span>
         <p class="c-text">${boss.text}</p>
         ${boss.tipp ? `<p class="c-tipp">${boss.tipp}</p>` : ""}
       </button>`;
@@ -422,7 +445,8 @@ function renderFortschritt() {
     render();
   });
   $("#btn-requiz").addEventListener("click", () => {
-    state.startLevel = null;
+    if (!state.startLevels) state.startLevels = {};
+    state.startLevels[state.track] = null;
     saveState();
     showQuiz();
   });
