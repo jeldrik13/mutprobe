@@ -2,6 +2,24 @@
 
 const STORAGE_KEY = "mutprobe-state-v1";
 
+const QUIZ = [
+  { q: "Eine fremde Person nach dem Weg fragen – wie fühlt sich das an?", a: [
+    { t: "Mach ich, ohne nachzudenken", pts: 2 },
+    { t: "Kostet mich etwas Überwindung", pts: 1 },
+    { t: "Das vermeide ich, wenn es geht", pts: 0 },
+  ]},
+  { q: "Einer fremden Person ein ehrliches Kompliment machen?", a: [
+    { t: "Kein Problem", pts: 2 },
+    { t: "Mit Anlauf schaffe ich das", pts: 1 },
+    { t: "Sehr schwer für mich", pts: 0 },
+  ]},
+  { q: "Wie oft kommst du aktuell mit Fremden ins Gespräch?", a: [
+    { t: "Regelmäßig", pts: 2 },
+    { t: "Ab und zu", pts: 1 },
+    { t: "So gut wie nie", pts: 0 },
+  ]},
+];
+
 const defaultState = () => ({
   track: null,
   xp: 0,
@@ -11,6 +29,8 @@ const defaultState = () => ({
   lastDoneDay: null,
   todayKey: null,
   todayPicks: [],
+  todayCompleted: [],
+  startLevel: null,
   currentChallengeId: null,
   currentIsBoss: false,
   currentWette: null,        // { text, prob, fearBefore }
@@ -71,7 +91,7 @@ function currentLevel() {
   return lvl;
 }
 function unlockedStufen() {
-  const lvl = currentLevel();
+  const lvl = Math.max(currentLevel(), state.startLevel || 0);
   if (lvl >= 4) return [1, 2, 3];
   if (lvl >= 2) return [1, 2];
   return [1];
@@ -101,6 +121,7 @@ function ensureToday() {
   if (state.todayKey !== today) {
     state.todayKey = today;
     state.doneToday = false;
+    state.todayCompleted = [];
     state.currentChallengeId = null;
     state.currentIsBoss = false;
     state.currentWette = null;
@@ -108,19 +129,34 @@ function ensureToday() {
     saveState();
   }
 }
+// Wählt n Challenges, möglichst aus verschiedenen Stufen (alle am selben Tag machbar)
 function pickChallenges(n, avoid = []) {
   const stufen = unlockedStufen();
-  const pool = CHALLENGES.filter((c) => c.track === state.track && stufen.includes(c.stufe));
   const recent = state.history.slice(-6).map((h) => h.challengeId);
-  let usable = pool.filter((c) => !recent.includes(c.id));
-  if (usable.length < n) usable = pool;
+  const poolFor = (st) => {
+    let p = CHALLENGES.filter((c) => c.track === state.track && c.stufe === st && !recent.includes(c.id));
+    if (!p.length) p = CHALLENGES.filter((c) => c.track === state.track && c.stufe === st);
+    return p;
+  };
+  const pools = stufen.map(poolFor);
   for (let attempt = 0; attempt < 12; attempt++) {
-    const shuffled = [...usable].sort(() => Math.random() - 0.5);
-    const picks = shuffled.slice(0, n).map((c) => c.id);
+    const picks = [];
+    for (let i = 0; i < n; i++) {
+      const pool = pools[Math.min(i, pools.length - 1)];
+      const cands = pool.filter((c) => !picks.includes(c.id));
+      if (cands.length) picks.push(cands[Math.floor(Math.random() * cands.length)].id);
+    }
+    if (picks.length < n) {
+      const rest = CHALLENGES.filter((c) => c.track === state.track && stufen.includes(c.stufe) && !picks.includes(c.id));
+      while (picks.length < n && rest.length) {
+        picks.push(rest.splice(Math.floor(Math.random() * rest.length), 1)[0].id);
+      }
+    }
+    picks.sort((a, b) => (findChallenge(a).stufe || 1) - (findChallenge(b).stufe || 1));
     const same = avoid.length && picks.every((id) => avoid.includes(id));
-    if (!same || usable.length <= n) return picks;
+    if (!same) return picks;
   }
-  return usable.slice(0, n).map((c) => c.id);
+  return pools.flat().slice(0, n).map((c) => c.id);
 }
 function bossForWeek() {
   const list = BOSS_CHALLENGES.filter((b) => b.track === state.track);
@@ -170,10 +206,41 @@ function renderTrackList() {
         state.currentWette = null;
       }
       saveState();
-      render();
+      if (state.startLevel === null) showQuiz();
+      else render();
     });
     list.appendChild(btn);
   });
+}
+
+// ── Einstufungs-Quiz ────────────────────────────────────
+function showQuiz() {
+  $("#onboarding").classList.remove("hidden");
+  $("#main").classList.add("hidden");
+  document.querySelectorAll(".onb-step").forEach((s) => s.classList.add("hidden"));
+  document.querySelector('.onb-step[data-step="4"]').classList.remove("hidden");
+  let qi = 0, score = 0;
+  const box = $("#quiz-box");
+  const step = () => {
+    const q = QUIZ[qi];
+    box.innerHTML = `<p class="quiz-q">${qi + 1}/${QUIZ.length} · ${q.q}</p>` +
+      q.a.map((a) => `<button class="track-card" data-pts="${a.pts}"><div><div class="t-name">${a.t}</div></div></button>`).join("");
+    box.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => {
+      score += Number(b.dataset.pts);
+      qi += 1;
+      if (qi < QUIZ.length) step();
+      else finish();
+    }));
+  };
+  const finish = () => {
+    state.startLevel = score >= 5 ? 4 : score >= 2 ? 2 : 0;
+    if (state.todayKey === todayStr()) state.todayPicks = pickChallenges(3);
+    saveState();
+    render();
+    const maxStufe = Math.max(...unlockedStufen());
+    showToast(`Dein Start: ${LEVELS[state.startLevel].name} · Aufgaben bis Stufe ${maxStufe}`, 4200);
+  };
+  step();
 }
 
 function heuteHeader() {
@@ -208,23 +275,29 @@ function renderHeute() {
       </div>
       <button class="btn filled" id="btn-done">Geschafft</button>
       ${(!isBoss && current.korbMoeglich) || isBoss ? `<button class="btn tint" id="btn-korb">Korb kassiert · Bonus sichern</button>` : ""}
+      ${!state.currentWette ? `<button class="btn plain" id="btn-wette">Wette gegen die Angst · +${XP_WETTE_BONUS} XP</button>` : ""}
       <button class="btn plain" id="btn-skip">Heute nicht geschafft</button>
       <button class="btn plain subtle" id="btn-change">${isBoss ? "Boss verschieben" : "Andere Challenge wählen"}</button>`;
-  } else if (state.doneToday) {
-    html += `<div class="card done-hero">
-      <h2>Mutprobe erledigt</h2>
-      <p>Für heute bist du durch. Das Leben darf jetzt wieder unernst sein.</p>
-    </div>`;
   } else {
-    html += `<p class="section-label">Wähle deine Mutprobe</p>`;
-    const picks = state.todayPicks.map((id) => CHALLENGES.find((c) => c.id === id)).filter(Boolean);
-    picks.forEach((c) => {
-      html += `<button class="card pick-card" data-pick="${c.id}">
-        <span class="stufe-tag">Stufe ${c.stufe} · ${XP_BY_STUFE[c.stufe]} XP</span>
-        <p class="c-text">${c.text}</p>
-      </button>`;
-    });
-    html += `<button class="btn plain subtle" id="btn-reroll">Neu mischen</button>`;
+    const openPicks = state.todayPicks
+      .filter((id) => !(state.todayCompleted || []).includes(id))
+      .map((id) => CHALLENGES.find((c) => c.id === id))
+      .filter(Boolean);
+    if (openPicks.length) {
+      html += `<p class="section-label">${state.doneToday ? "Bonus-Mutproben" : "Wähle deine Mutprobe"}</p>`;
+      openPicks.forEach((c) => {
+        html += `<button class="card pick-card" data-pick="${c.id}">
+          <span class="stufe-tag">Stufe ${c.stufe} · ${XP_BY_STUFE[c.stufe]} XP</span>
+          <p class="c-text">${c.text}</p>
+        </button>`;
+      });
+      if (!state.doneToday) html += `<button class="btn plain subtle" id="btn-reroll">Neu mischen</button>`;
+    } else {
+      html += `<div class="card done-hero">
+        <h2>Alles erledigt</h2>
+        <p>Für heute bist du durch. Das Leben darf jetzt wieder unernst sein.</p>
+      </div>`;
+    }
   }
 
   // Wochen-Boss (verfügbar, solange keine Challenge aktiv ist)
@@ -248,7 +321,8 @@ function renderHeute() {
     saveState();
     render();
   });
-  const bDone = $("#btn-done"), bKorb = $("#btn-korb"), bSkip = $("#btn-skip"), bChange = $("#btn-change");
+  const bDone = $("#btn-done"), bKorb = $("#btn-korb"), bSkip = $("#btn-skip"), bChange = $("#btn-change"), bWette = $("#btn-wette");
+  if (bWette) bWette.addEventListener("click", openWette);
   if (bDone) bDone.addEventListener("click", () => openReflect("done"));
   if (bKorb) bKorb.addEventListener("click", () => openReflect("korb"));
   if (bSkip) bSkip.addEventListener("click", () => openReflect("skip"));
@@ -323,6 +397,7 @@ function renderFortschritt() {
     <div class="list-group">
       <div class="list-row"><div class="row-main"><p class="row-title">Streak-Joker</p><p class="row-sub">Fängt einen verpassten Tag ab. Alle 7 Mutproben gibt es einen.</p></div><span class="row-value">${state.jokers} von 2</span></div>
       <button class="list-row" id="btn-switch-track"><div class="row-main"><p class="row-title">Track wechseln</p><p class="row-sub">Aktuell: ${TRACKS[state.track].name}</p></div></button>
+      <button class="list-row" id="btn-requiz"><div class="row-main"><p class="row-title">Einstufung wiederholen</p><p class="row-sub">Passt dein Startlevel an (aktuell: Aufgaben bis Stufe ${Math.max(...unlockedStufen())})</p></div></button>
       <button class="list-row" id="btn-reset"><div class="row-main"><p class="row-title danger">Alles zurücksetzen</p></div></button>
     </div>`;
 
@@ -345,6 +420,11 @@ function renderFortschritt() {
     state.track = null;
     saveState();
     render();
+  });
+  $("#btn-requiz").addEventListener("click", () => {
+    state.startLevel = null;
+    saveState();
+    showQuiz();
   });
   $("#btn-reset").addEventListener("click", () => {
     if (confirm("Wirklich alles löschen? XP, Körbe, Journal – alles weg.")) {
@@ -405,12 +485,15 @@ function renderJournal() {
   v.innerHTML = html;
 }
 
-// ── Challenge-Annahme & Wette ───────────────────────────
+// ── Challenge-Annahme & Wette (optional) ────────────────
 function acceptChallenge(id, isBoss) {
   state.currentChallengeId = id;
   state.currentIsBoss = isBoss;
   state.currentWette = null;
   saveState();
+  render();
+}
+function openWette() {
   $("#wette-text").value = "";
   $("#wette-prob").value = 50;
   $("#wette-prob-val").textContent = "50 %";
@@ -515,6 +598,7 @@ function saveReflect() {
   }
 
   if (outcome === "korb") state.koerbe += 1;
+  if (!isBoss) state.todayCompleted = [...(state.todayCompleted || []), challengeId];
 
   // Streak (mit Joker)
   const today = todayStr();
@@ -539,17 +623,20 @@ function saveReflect() {
     if (state.jokers < 2) { state.jokers += 1; jokerEarned = true; }
   }
 
-  // Mut-Truhe
-  const roll = Math.random();
-  if (roll < 0.55) {
-    const bonus = 5 + Math.floor(Math.random() * 11);
-    state.xp += bonus;
-    truhe = { type: "xp", text: `+${bonus} Bonus-XP aus der Truhe` };
-  } else if (roll < 0.9 || state.jokers >= 2) {
-    truhe = { type: "quote", text: QUOTES[Math.floor(Math.random() * QUOTES.length)] };
-  } else {
-    state.jokers += 1;
-    truhe = { type: "joker", text: "Ein Streak-Joker. Er fängt einen verpassten Tag ab." };
+  // Mut-Truhe – nur bei der ersten Mutprobe des Tages (und beim Boss)
+  const firstToday = isBoss || (state.todayCompleted || []).length === 1;
+  if (firstToday) {
+    const roll = Math.random();
+    if (roll < 0.55) {
+      const bonus = 5 + Math.floor(Math.random() * 11);
+      state.xp += bonus;
+      truhe = { type: "xp", text: `+${bonus} Bonus-XP aus der Truhe` };
+    } else if (roll < 0.9 || state.jokers >= 2) {
+      truhe = { type: "quote", text: QUOTES[Math.floor(Math.random() * QUOTES.length)] };
+    } else {
+      state.jokers += 1;
+      truhe = { type: "joker", text: "Ein Streak-Joker. Er fängt einen verpassten Tag ab." };
+    }
   }
 
   if (isBoss) {
@@ -687,28 +774,15 @@ function init() {
   $("#wette-place").addEventListener("click", () => {
     const text = $("#wette-text").value.trim();
     if (text.length < 3) {
-      state.currentWette = null;
-    } else {
-      state.currentWette = { text, prob: Number($("#wette-prob").value), fearBefore: Number($("#fear-before").value) };
+      showToast("Ohne Befürchtung keine Wette – schreib kurz, was du fürchtest.");
+      return;
     }
+    state.currentWette = { text, prob: Number($("#wette-prob").value), fearBefore: Number($("#fear-before").value) };
     saveState();
     closeWette();
     render();
   });
-  $("#wette-skip").addEventListener("click", () => {
-    state.currentWette = null;
-    saveState();
-    closeWette();
-    render();
-  });
-  $("#wette-cancel").addEventListener("click", () => {
-    state.currentChallengeId = null;
-    state.currentIsBoss = false;
-    state.currentWette = null;
-    saveState();
-    closeWette();
-    render();
-  });
+  $("#wette-cancel").addEventListener("click", closeWette);
 
   // Reflexions-Modal
   $("#fear-after").addEventListener("input", (e) => { $("#fear-after-val").textContent = `${e.target.value}/10`; });
