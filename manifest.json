@@ -1,0 +1,11 @@
+{
+  "name": "Mutprobe",
+  "short_name": "Mutprobe",
+  "description": "Die App, die dich fürs Scheitern feiert. Tägliche soziale Mut-Challenges.",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#12141a",
+  "theme_color": "#12141a",
+  "lang": "de",
+  "icons": []
+}

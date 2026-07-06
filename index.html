@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Mutprobe – Die App, die dich fürs Scheitern feiert</title>
+  <meta name="description" content="Tägliche soziale Mut-Challenges. Ansprechangst abbauen, Small Talk lernen, Grenzen setzen – spielerisch und ohne dich selbst zu ernst zu nehmen." />
+  <link rel="manifest" href="manifest.json" />
+  <meta name="theme-color" content="#12141a" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="app">
+
+    <!-- ═══ Onboarding ═══ -->
+    <section id="onboarding" class="screen hidden">
+      <div class="onb-step" data-step="1">
+        <div class="onb-hero">🎯</div>
+        <h1>Mutprobe</h1>
+        <p class="tagline">Die App, die dich fürs Scheitern feiert.</p>
+        <p>Jeden Tag eine kleine soziale Mutprobe im echten Leben. Du sammelst XP – und für kassierte Körbe gibt&rsquo;s sogar <strong>Bonus-Punkte</strong>. Denn wer das Nein nicht mehr fürchtet, ist frei.</p>
+        <button class="btn primary" data-next="2">Los geht&rsquo;s</button>
+      </div>
+      <div class="onb-step hidden" data-step="2">
+        <div class="onb-hero">🤝</div>
+        <h2>Eine Sache noch</h2>
+        <p>Hier geht es um <strong>echte Begegnungen</strong> – um Neugier und Freundlichkeit, nicht um Quoten oder Tricks. Jede Challenge respektiert die Grenzen anderer Menschen.</p>
+        <p class="small muted">Mutprobe ist ein Trainings-Spiel und ersetzt keine Therapie. Wenn Ängste deinen Alltag stark einschränken, hol dir professionelle Unterstützung – das ist die mutigste Challenge von allen.</p>
+        <button class="btn primary" data-next="3">Verstanden</button>
+      </div>
+      <div class="onb-step hidden" data-step="3">
+        <h2>Wähle deinen Track</h2>
+        <p class="muted">Du kannst später jederzeit wechseln.</p>
+        <div id="track-list"></div>
+      </div>
+    </section>
+
+    <!-- ═══ Haupt-App ═══ -->
+    <section id="main" class="screen hidden">
+      <header>
+        <div class="header-row">
+          <span id="header-track" class="chip"></span>
+          <span id="header-streak" class="chip streak"></span>
+        </div>
+        <div class="level-bar">
+          <div class="level-info">
+            <span id="level-name"></span>
+            <span id="level-xp" class="muted small"></span>
+          </div>
+          <div class="progress"><div id="level-progress" class="progress-fill"></div></div>
+        </div>
+      </header>
+
+      <main>
+        <div id="view-heute" class="view"></div>
+        <div id="view-fortschritt" class="view hidden"></div>
+        <div id="view-journal" class="view hidden"></div>
+      </main>
+
+      <nav>
+        <button class="nav-btn active" data-view="heute">🎯<span>Heute</span></button>
+        <button class="nav-btn" data-view="fortschritt">📈<span>Fortschritt</span></button>
+        <button class="nav-btn" data-view="journal">📓<span>Journal</span></button>
+      </nav>
+    </section>
+
+    <!-- ═══ Reflexions-Modal ═══ -->
+    <div id="modal" class="modal-backdrop hidden">
+      <div class="modal">
+        <h3 id="modal-title">Kurz reflektieren</h3>
+        <p class="muted small">30 Sekunden ehrlich sein – erst dann gibt&rsquo;s die XP.</p>
+        <label class="slider-label">Angst <em>vorher</em>: <span id="fear-before-val">5</span>/10
+          <input type="range" id="fear-before" min="1" max="10" value="5" />
+        </label>
+        <label class="slider-label">Angst <em>nachher</em>: <span id="fear-after-val">3</span>/10
+          <input type="range" id="fear-after" min="1" max="10" value="3" />
+        </label>
+        <label for="reflect-text" class="slider-label">Was ist wirklich passiert? Was nimmst du mit?</label>
+        <textarea id="reflect-text" rows="3" placeholder="Kurz und ehrlich – nur für dich."></textarea>
+        <p id="modal-error" class="error hidden">Schreib mindestens einen kurzen Satz – Ehrlichkeit ist der Deal. 😉</p>
+        <button id="modal-save" class="btn primary">Speichern &amp; XP kassieren</button>
+        <button id="modal-cancel" class="btn ghost">Abbrechen</button>
+      </div>
+    </div>
+
+    <!-- ═══ Feier-Toast ═══ -->
+    <div id="toast" class="toast hidden"></div>
+  </div>
+
+  <script src="challenges.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
