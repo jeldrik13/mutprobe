@@ -59,8 +59,8 @@ body {
 
 /* ═══ Onboarding ═══ */
 #onboarding { justify-content: center; padding: max(32px, env(safe-area-inset-top)) 28px 32px; text-align: center; }
-.onb-icon { width: 84px; height: 84px; margin: 0 auto 16px; display: block; }
-#onboarding h1 { font-size: 34px; font-weight: 700; letter-spacing: -0.5px; }
+.onb-icon { width: 76px; height: 76px; margin: 0 auto 14px; display: block; }
+#onboarding h1 { font-size: 46px; font-weight: 700; letter-spacing: -1.2px; line-height: 1.05; }
 #onboarding h2 { font-size: 26px; font-weight: 700; letter-spacing: -0.4px; margin-bottom: 10px; }
 .tagline { color: var(--accent-text); font-weight: 600; margin: 4px 0 18px; }
 #onboarding p { margin-bottom: 16px; color: var(--text-2); }

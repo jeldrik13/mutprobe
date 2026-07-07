@@ -280,6 +280,8 @@ function showQuiz() {
   $("#main").classList.add("hidden");
   document.querySelectorAll(".onb-step").forEach((s) => s.classList.add("hidden"));
   document.querySelector('.onb-step[data-step="4"]').classList.remove("hidden");
+  const intro = $("#quiz-intro");
+  if (intro) intro.textContent = `${QUIZ.length} kurze Fragen, damit dein Startlevel passt.`;
   let qi = 0, score = 0;
   const box = $("#quiz-box");
   const step = () => {
