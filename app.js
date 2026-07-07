@@ -43,6 +43,8 @@ const defaultState = () => ({
   startLevels: {},           // Einstufung pro Track – Ängste sind bereichsspezifisch
   reminderDismissedDay: null,
   soundOn: true,
+  name: "",
+  lastRecapWeek: null,
   currentChallengeId: null,
   currentIsBoss: false,
   currentWette: null,        // { text, prob, fearBefore }
@@ -306,7 +308,38 @@ function showQuiz() {
 
 function heuteHeader() {
   const dateStr = new Date().toLocaleDateString("de-DE", { weekday: "long", day: "numeric", month: "long" });
-  return `<p class="view-date">${dateStr}</p><h1>Heute</h1>`;
+  const h = new Date().getHours();
+  const zeit = h < 5 ? "Gute Nacht" : h < 11 ? "Guten Morgen" : h < 18 ? "Hallo" : "Guten Abend";
+  const gruss = state.name ? `${zeit}, ${escapeHtml(state.name)}.` : `${zeit}.`;
+  return `<p class="view-date">${dateStr}</p><h1>${gruss}</h1>`;
+}
+
+// Wochenrückblick: erscheint einmal pro Woche, wenn letzte Woche etwas passiert ist
+function recapCard() {
+  if (state.lastRecapWeek === weekKey()) return null;
+  const monday = new Date();
+  monday.setHours(0, 0, 0, 0);
+  monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
+  const lastWeekDates = [];
+  for (let i = 7; i >= 1; i--) {
+    const d = new Date(monday);
+    d.setDate(d.getDate() - i);
+    lastWeekDates.push(localDateStr(d));
+  }
+  const entries = state.history.filter((h) => lastWeekDates.includes(h.date) && h.outcome !== "skip");
+  if (!entries.length) return null;
+  const xpSum = entries.reduce((a, h) => a + h.xp, 0);
+  const withFear = entries.filter((h) => typeof h.fearBefore === "number");
+  let fearLine = "";
+  if (withFear.length) {
+    const avgB = withFear.reduce((a, h) => a + h.fearBefore, 0) / withFear.length;
+    const avgA = withFear.reduce((a, h) => a + h.fearAfter, 0) / withFear.length;
+    fearLine = ` · Angst Ø ${avgB.toFixed(1)} → ${avgA.toFixed(1)}`;
+  }
+  return {
+    title: "Deine letzte Woche",
+    text: `${entries.length} ${entries.length === 1 ? "Mutprobe" : "Mutproben"} · +${xpSum} XP${fearLine}`,
+  };
 }
 
 function reminderBanner() {
@@ -344,10 +377,32 @@ function renderHeute() {
     </div>`;
   }
 
+  const recap = recapCard();
+  if (recap) {
+    html += `<div class="card recap-card">
+      <div class="row-main"><p class="r-title">${recap.title}</p><p class="r-sub">${recap.text}</p></div>
+      <button class="banner-close" id="btn-recap-close" aria-label="Rückblick ausblenden">
+        <svg viewBox="0 0 24 24"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
+      </button>
+    </div>`;
+  }
+
   html += `<div class="card ring-card">
     ${ringSvg(ringPct, 80, 30, 9, "var(--accent)")}
     <div><p class="r-title">Mut-Ring</p><p class="r-sub">${ringSub}</p></div>
   </div>`;
+
+  // Level-Fortschritt: das nächste Ziel immer sichtbar
+  const lvl = currentLevel();
+  const next = LEVELS[lvl + 1];
+  if (next) {
+    const prevXp = LEVELS[lvl].xp;
+    const pct = Math.min(100, Math.round(((state.xp - prevXp) / (next.xp - prevXp)) * 100));
+    html += `<div class="card level-card">
+      <div class="level-head"><span>Lv. ${lvl + 1} · ${LEVELS[lvl].name}</span><span class="muted">${next.xp - state.xp} XP bis „${next.name}“</span></div>
+      <div class="level-bar"><div class="level-fill" style="width:${pct}%"></div></div>
+    </div>`;
+  }
 
   const current = state.currentChallengeId ? findChallenge(state.currentChallengeId) : null;
 
@@ -401,8 +456,18 @@ function renderHeute() {
       </button>`;
   }
 
+  // Mut-Gedanke des Tages – täglich neu, ganz unten
+  const dayOfYear = Math.floor((new Date() - new Date(new Date().getFullYear(), 0, 0)) / 86400000);
+  html += `<p class="thought">„${THOUGHTS[dayOfYear % THOUGHTS.length]}“</p>`;
+
   v.innerHTML = html;
 
+  const recapClose = $("#btn-recap-close");
+  if (recapClose) recapClose.addEventListener("click", () => {
+    state.lastRecapWeek = weekKey();
+    saveState();
+    render();
+  });
   const bannerClose = $("#btn-dismiss-banner");
   if (bannerClose) bannerClose.addEventListener("click", () => {
     state.reminderDismissedDay = todayStr();
@@ -485,6 +550,8 @@ function renderFortschritt() {
     <div class="card"><p style="font-size:15px">${quoteText}</p>
       ${bewertete.length ? `<p class="c-tipp">Trefferquote deiner Angst: ${Math.round(((bewertete.length - daneben) / bewertete.length) * 100)} % – sie ist ein schlechter Prophet.</p>` : ""}
     </div>
+    <p class="section-label">Aktivität · letzte 12 Wochen</p>
+    <div class="card">${heatmapHtml()}</div>
     <p class="section-label">Angstkurve</p>
     <div class="card chart-card">${fearChart()}</div>
     <p class="section-label">Abzeichen</p>
@@ -492,6 +559,7 @@ function renderFortschritt() {
     <p class="section-label">Einstellungen</p>
     <div class="list-group">
       <div class="list-row"><div class="row-main"><p class="row-title">Streak-Joker</p><p class="row-sub">Fängt einen verpassten Tag ab. Alle 7 Mutproben gibt es einen.</p></div><span class="row-value">${state.jokers} von 2</span></div>
+      <button class="list-row" id="btn-name"><div class="row-main"><p class="row-title">Name</p><p class="row-sub">Für die Begrüßung auf dem Heute-Tab</p></div><span class="row-value">${state.name ? escapeHtml(state.name) : "–"}</span></button>
       <button class="list-row" id="btn-sound"><div class="row-main"><p class="row-title">Töne</p><p class="row-sub">Soundeffekte bei Erfolgen und Aktionen</p></div><span class="row-value">${state.soundOn !== false ? "An" : "Aus"}</span></button>
       <button class="list-row" id="btn-switch-track"><div class="row-main"><p class="row-title">Track wechseln</p><p class="row-sub">Aktuell: ${TRACKS[state.track].name}</p></div></button>
       <button class="list-row" id="btn-requiz"><div class="row-main"><p class="row-title">Einstufung wiederholen</p><p class="row-sub">Passt dein Startlevel an (aktuell: Aufgaben bis Stufe ${Math.max(...unlockedStufen())})</p></div></button>
@@ -505,14 +573,31 @@ function renderFortschritt() {
     const earned = b.check(state);
     const row = document.createElement("div");
     row.className = "list-row" + (earned ? "" : " locked");
+    // „Fast geschafft“-Anzeige: Fortschritt zum nächsten Abzeichen sichtbar machen
+    let progressHtml = "";
+    let value = "";
+    if (!earned && b.progress) {
+      const [cur, target] = b.progress(state);
+      const pct = Math.min(100, Math.round((cur / target) * 100));
+      value = `<span class="row-value">${Math.min(cur, target)} / ${target}</span>`;
+      progressHtml = `<div class="badge-bar"><div class="badge-fill" style="width:${pct}%"></div></div>`;
+    }
     row.innerHTML = `<svg class="badge-check" viewBox="0 0 24 24" aria-hidden="true">
         <circle cx="12" cy="12" r="10" fill="none" stroke="${earned ? "var(--accent)" : "var(--text-3)"}" stroke-width="1.7"/>
         ${earned ? '<path d="M8 12.5l2.6 2.6L16 9.5" fill="none" stroke="var(--accent)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>' : ""}
       </svg>
-      <div class="row-main"><p class="row-title">${b.name}</p><p class="row-sub">${b.desc}</p></div>`;
+      <div class="row-main"><p class="row-title">${b.name}</p><p class="row-sub">${b.desc}</p>${progressHtml}</div>${value}`;
     list.appendChild(row);
   });
 
+  $("#btn-name").addEventListener("click", () => {
+    const neu = prompt("Wie dürfen wir dich nennen?", state.name || "");
+    if (neu !== null) {
+      state.name = neu.trim().slice(0, 20);
+      saveState();
+      render();
+    }
+  });
   $("#btn-sound").addEventListener("click", () => {
     state.soundOn = state.soundOn === false;
     saveState();
@@ -537,6 +622,33 @@ function renderFortschritt() {
       render();
     }
   });
+}
+
+// Aktivitäts-Heatmap: „Reiß die Kette nicht ab“ sichtbar gemacht
+function heatmapHtml() {
+  const counts = {};
+  state.history.forEach((h) => {
+    if (h.outcome !== "skip") counts[h.date] = (counts[h.date] || 0) + 1;
+  });
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const monday = new Date(today);
+  monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7) - 77); // 11 Wochen zurück, Montag
+  let cells = "";
+  for (let w = 0; w < 12; w++) {
+    for (let d = 0; d < 7; d++) {
+      const dt = new Date(monday);
+      dt.setDate(dt.getDate() + w * 7 + d);
+      if (dt > today) { cells += `<span class="heat-cell future"></span>`; continue; }
+      const key = localDateStr(dt);
+      const n = counts[key] || 0;
+      const cls = n >= 2 ? "hot" : n === 1 ? "warm" : "";
+      const isToday = key === localDateStr(today) ? " today" : "";
+      cells += `<span class="heat-cell ${cls}${isToday}"></span>`;
+    }
+  }
+  return `<div class="heat-grid">${cells}</div>
+    <div class="heat-legend"><span>Weniger</span><span class="heat-cell"></span><span class="heat-cell warm"></span><span class="heat-cell hot"></span><span>Mehr</span></div>`;
 }
 
 function fearChart() {
@@ -914,6 +1026,13 @@ function stopMic() {
 function init() {
   document.querySelectorAll("[data-next]").forEach((btn) => {
     btn.addEventListener("click", () => {
+      if (btn.dataset.next === "3") {
+        const nameInput = $("#name-input");
+        if (nameInput && nameInput.value.trim()) {
+          state.name = nameInput.value.trim().slice(0, 20);
+          saveState();
+        }
+      }
       document.querySelectorAll(".onb-step").forEach((s) => s.classList.add("hidden"));
       document.querySelector(`.onb-step[data-step="${btn.dataset.next}"]`).classList.remove("hidden");
     });

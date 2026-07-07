@@ -90,6 +90,24 @@ const QUOTES = [
   "Übung macht nicht perfekt. Übung macht gelassen. Reicht völlig.",
 ];
 
+// Mut-Gedanke des Tages – täglich wechselnd, deterministisch nach Datum
+const THOUGHTS = [
+  "Die meisten Menschen sind zu beschäftigt mit sich selbst, um dich zu bewerten.",
+  "Ein unangenehmes Gespräch dauert Minuten. Das Vermeiden davon dauert Jahre.",
+  "Mut fühlt sich vorher wie Angst an. Das ist normal und kein Stoppsignal.",
+  "Du musst nicht selbstsicher sein, um mutig zu handeln. Es geht andersherum.",
+  "Jedes Nein bringt dich näher an ein Ja – und macht dich unempfindlicher gegen beides.",
+  "Peinlichkeit ist ein Gefühl, kein Zustand. Sie verfliegt schneller als Kaffee kalt wird.",
+  "Wer nichts riskiert, bekommt auch ein Ergebnis: immer dasselbe.",
+  "Niemand erinnert sich an deinen verpatzten Satz. Alle erinnern sich an ihre eigenen.",
+  "Kleine Schritte täglich schlagen große Pläne monatlich.",
+  "Deine Komfortzone wächst nur, wenn du gelegentlich rausgehst.",
+  "Angst ist ein miserabler Wahrsager. Prüf ihre Bilanz in deinem Journal.",
+  "Charme ist Übungssache. Talent wird überschätzt.",
+  "Das Schlimmste, was meistens passiert: nichts. Das Beste: alles.",
+  "Heute unbeholfen ist besser als morgen wieder still.",
+];
+
 // Level-System
 const LEVELS = [
   { xp: 0, name: "Stiller Beobachter" },
@@ -111,12 +129,14 @@ const BOSS_MULTIPLIER = 3;
 const BADGES = [
   { id: "erste", name: "Erster Schritt", desc: "Erste Mutprobe abgeschlossen", check: (s) => s.history.length >= 1 },
   { id: "korb1", name: "Erster Korb", desc: "Einen Korb kassiert und überlebt", check: (s) => s.koerbe >= 1 },
-  { id: "korb5", name: "Korbflechter", desc: "Fünf Körbe gesammelt", check: (s) => s.koerbe >= 5 },
-  { id: "streak3", name: "Drei Tage dran", desc: "Drei Tage Serie", check: (s) => s.bestStreak >= 3 },
-  { id: "streak7", name: "Eine ganze Woche", desc: "Sieben Tage Serie", check: (s) => s.bestStreak >= 7 },
-  { id: "zehn", name: "Zehn Mutproben", desc: "Zehn Einträge im Journal", check: (s) => s.history.length >= 10 },
+  { id: "korb5", name: "Korbflechter", desc: "Fünf Körbe gesammelt", check: (s) => s.koerbe >= 5, progress: (s) => [s.koerbe, 5] },
+  { id: "streak3", name: "Drei Tage dran", desc: "Drei Tage Serie", check: (s) => s.bestStreak >= 3, progress: (s) => [s.bestStreak, 3] },
+  { id: "streak7", name: "Eine ganze Woche", desc: "Sieben Tage Serie", check: (s) => s.bestStreak >= 7, progress: (s) => [s.bestStreak, 7] },
+  { id: "zehn", name: "Zehn Mutproben", desc: "Zehn Einträge im Journal", check: (s) => s.history.length >= 10, progress: (s) => [s.history.length, 10] },
+  { id: "dreissig", name: "Dranbleiber", desc: "Dreißig Mutproben geschafft", check: (s) => s.history.filter((h) => h.outcome !== "skip").length >= 30, progress: (s) => [s.history.filter((h) => h.outcome !== "skip").length, 30] },
   { id: "ehrlich", name: "Ehrliche Haut", desc: "Einmal ehrlich ausgelassen", check: (s) => s.history.some((h) => h.outcome === "skip") },
-  { id: "prophet", name: "Angst widerlegt", desc: "Fünf Wetten gegen die Angst gewonnen", check: (s) => s.history.filter((h) => h.wette && h.wette.eingetreten === "nein").length >= 5 },
+  { id: "prophet", name: "Angst widerlegt", desc: "Fünf Wetten gegen die Angst gewonnen", check: (s) => s.history.filter((h) => h.wette && h.wette.eingetreten === "nein").length >= 5, progress: (s) => [s.history.filter((h) => h.wette && h.wette.eingetreten === "nein").length, 5] },
   { id: "boss", name: "Bosskampf", desc: "Einen Wochen-Boss besiegt", check: (s) => s.history.some((h) => h.isBoss && h.outcome !== "skip") },
+  { id: "boss4", name: "Bossjäger", desc: "Vier Wochen-Bosse besiegt", check: (s) => s.history.filter((h) => h.isBoss && h.outcome !== "skip").length >= 4, progress: (s) => [s.history.filter((h) => h.isBoss && h.outcome !== "skip").length, 4] },
   { id: "stufe3", name: "Königsklasse", desc: "Eine Stufe-3-Challenge gemeistert", check: (s) => s.history.some((h) => { const c = CHALLENGES.find((x) => x.id === h.challengeId); return c && c.stufe === 3 && h.outcome !== "skip"; }) },
 ];
