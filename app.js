@@ -42,6 +42,7 @@ const defaultState = () => ({
   todayCompleted: [],
   startLevels: {},           // Einstufung pro Track – Ängste sind bereichsspezifisch
   reminderDismissedDay: null,
+  soundOn: true,
   currentChallengeId: null,
   currentIsBoss: false,
   currentWette: null,        // { text, prob, fearBefore }
@@ -121,6 +122,7 @@ function showToast(msg, ms = 2800) {
   t.classList.remove("hidden");
   clearTimeout(t._timer);
   t._timer = setTimeout(() => t.classList.add("hidden"), ms);
+  if (typeof Sound !== "undefined") Sound.pop();
 }
 function ringSvg(pct, size, r, w, color) {
   const c = 2 * Math.PI * r;
@@ -133,6 +135,43 @@ function ringSvg(pct, size, r, w, color) {
       transform="rotate(-90 ${mid} ${mid})"></circle>
   </svg>`;
 }
+
+// ── Sound-Engine (synthetisiert, keine Audiodateien) ────
+const Sound = (() => {
+  let ctx = null;
+  const enabled = () => state.soundOn !== false;
+  function ac() {
+    if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
+    if (ctx.state === "suspended") ctx.resume();
+    return ctx;
+  }
+  function tone(freq, dur, { type = "sine", vol = 0.15, when = 0, slide = 0 } = {}) {
+    if (!enabled()) return;
+    try {
+      const c = ac(), t = c.currentTime + when;
+      const o = c.createOscillator(), g = c.createGain();
+      o.type = type;
+      o.frequency.setValueAtTime(freq, t);
+      if (slide) o.frequency.exponentialRampToValueAtTime(slide, t + dur);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(vol, t + 0.012);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.connect(g).connect(c.destination);
+      o.start(t);
+      o.stop(t + dur + 0.05);
+    } catch (e) { /* Audio nicht verfügbar – still bleiben */ }
+  }
+  return {
+    tap: () => tone(520, 0.05, { vol: 0.06 }),
+    tick: () => tone(1100, 0.03, { type: "square", vol: 0.025 }),
+    pop: () => tone(600, 0.07, { type: "triangle", vol: 0.1, slide: 1400 }),
+    whoosh: () => tone(160, 0.55, { vol: 0.1, slide: 950 }),
+    success: () => { tone(523.25, 0.13, { vol: 0.14 }); tone(659.25, 0.13, { when: 0.1, vol: 0.14 }); tone(783.99, 0.24, { when: 0.2, vol: 0.16 }); },
+    korb: () => { tone(320, 0.28, { type: "sawtooth", vol: 0.09, slide: 140 }); tone(523.25, 0.12, { when: 0.34, vol: 0.13 }); tone(659.25, 0.22, { when: 0.46, vol: 0.14 }); },
+    levelUp: () => { [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => tone(f, 0.14, { when: i * 0.11, vol: 0.15 })); tone(1318.5, 0.4, { when: 0.46, vol: 0.16 }); },
+    chest: () => { tone(220, 0.09, { type: "square", vol: 0.09 }); tone(440, 0.32, { when: 0.09, vol: 0.12, slide: 1100 }); },
+  };
+})();
 
 // ── Tages-Logik ─────────────────────────────────────────
 function ensureToday() {
@@ -370,8 +409,8 @@ function renderHeute() {
     saveState();
     render();
   });
-  v.querySelectorAll("[data-pick]").forEach((el) => el.addEventListener("click", () => acceptChallenge(el.dataset.pick, false)));
-  v.querySelectorAll("[data-boss]").forEach((el) => el.addEventListener("click", () => acceptChallenge(el.dataset.boss, true)));
+  v.querySelectorAll("[data-pick]").forEach((el) => el.addEventListener("click", () => { Sound.tap(); acceptChallenge(el.dataset.pick, false); }));
+  v.querySelectorAll("[data-boss]").forEach((el) => el.addEventListener("click", () => { Sound.tap(); acceptChallenge(el.dataset.boss, true); }));
   const reroll = $("#btn-reroll");
   if (reroll) reroll.addEventListener("click", () => {
     state.todayPicks = pickChallenges(3, state.todayPicks);
@@ -453,6 +492,7 @@ function renderFortschritt() {
     <p class="section-label">Einstellungen</p>
     <div class="list-group">
       <div class="list-row"><div class="row-main"><p class="row-title">Streak-Joker</p><p class="row-sub">Fängt einen verpassten Tag ab. Alle 7 Mutproben gibt es einen.</p></div><span class="row-value">${state.jokers} von 2</span></div>
+      <button class="list-row" id="btn-sound"><div class="row-main"><p class="row-title">Töne</p><p class="row-sub">Soundeffekte bei Erfolgen und Aktionen</p></div><span class="row-value">${state.soundOn !== false ? "An" : "Aus"}</span></button>
       <button class="list-row" id="btn-switch-track"><div class="row-main"><p class="row-title">Track wechseln</p><p class="row-sub">Aktuell: ${TRACKS[state.track].name}</p></div></button>
       <button class="list-row" id="btn-requiz"><div class="row-main"><p class="row-title">Einstufung wiederholen</p><p class="row-sub">Passt dein Startlevel an (aktuell: Aufgaben bis Stufe ${Math.max(...unlockedStufen())})</p></div></button>
       <button class="list-row" id="btn-reset"><div class="row-main"><p class="row-title danger">Alles zurücksetzen</p></div></button>
@@ -473,6 +513,12 @@ function renderFortschritt() {
     list.appendChild(row);
   });
 
+  $("#btn-sound").addEventListener("click", () => {
+    state.soundOn = state.soundOn === false;
+    saveState();
+    if (state.soundOn) Sound.success();
+    render();
+  });
   $("#btn-switch-track").addEventListener("click", () => {
     state.track = null;
     saveState();
@@ -720,11 +766,11 @@ function saveReflect() {
   else if (jokerEarned) sub = "Streak-Joker verdient.";
   else if (wetteWon) sub = "Deine Angst lag daneben. Wieder mal.";
   else if (isBoss) sub = "Wochen-Boss besiegt.";
-  celebrate(xp, sub, truhe);
+  celebrate(xp, sub, truhe, { outcome, leveledUp: newLevel > prevLevel });
 }
 
 // ── Feier-Overlay ───────────────────────────────────────
-function celebrate(xp, sub, truhe) {
+function celebrate(xp, sub, truhe, fx = {}) {
   const overlay = $("#celebrate");
   const ring = $("#big-ring-fill");
   const xpEl = $("#cele-xp");
@@ -735,6 +781,8 @@ function celebrate(xp, sub, truhe) {
   reward.textContent = "";
   chest.classList.toggle("hidden", !truhe);
   chest.onclick = () => {
+    Sound.chest();
+    chestBurst();
     chest.classList.add("hidden");
     reward.textContent = truhe.text;
     reward.classList.remove("hidden");
@@ -743,33 +791,86 @@ function celebrate(xp, sub, truhe) {
   ring.style.strokeDashoffset = "289";
   overlay.classList.remove("hidden");
   spawnConfetti();
+  Sound.whoosh();
   requestAnimationFrame(() => {
     ring.style.transition = "stroke-dashoffset 0.9s cubic-bezier(0.22, 1, 0.36, 1)";
     ring.style.strokeDashoffset = "0";
   });
-  // XP hochzählen
+  // Sound und Strahlenkranz, sobald der Ring sich schließt
+  setTimeout(() => {
+    if (fx.leveledUp) {
+      Sound.levelUp();
+      spawnRays();
+    } else if (fx.outcome === "korb") {
+      Sound.korb();
+    } else {
+      Sound.success();
+    }
+  }, 820);
+  // XP hochzählen mit Tick-Geräuschen
   const start = performance.now(), dur = 700;
+  let lastTick = 0;
   function tick(now) {
     const p = Math.min(1, (now - start) / dur);
     xpEl.textContent = `+${Math.round(xp * p)} XP`;
+    if (now - lastTick > 65 && p < 1) { Sound.tick(); lastTick = now; }
     if (p < 1) requestAnimationFrame(tick);
+    else xpEl.classList.add("xp-pop"), setTimeout(() => xpEl.classList.remove("xp-pop"), 400);
   }
   requestAnimationFrame(tick);
+}
+
+function spawnRays() {
+  const inner = document.querySelector(".celebrate-inner");
+  const holder = document.createElement("div");
+  holder.className = "rays";
+  for (let i = 0; i < 10; i++) {
+    const s = document.createElement("span");
+    s.style.setProperty("--r", `${i * 36}deg`);
+    s.style.animationDelay = `${i * 0.025}s`;
+    holder.appendChild(s);
+  }
+  inner.appendChild(holder);
+  setTimeout(() => holder.remove(), 1400);
+}
+
+function chestBurst() {
+  const chest = $("#chest"), overlay = $("#celebrate");
+  const r = chest.getBoundingClientRect(), o = overlay.getBoundingClientRect();
+  const holder = document.createElement("div");
+  holder.className = "burst";
+  holder.style.left = `${r.left - o.left + r.width / 2}px`;
+  holder.style.top = `${r.top - o.top + r.height / 2}px`;
+  const colors = ["#FF9500", "#FFD60A", "#30D158", "#64D2FF", "#FF375F"];
+  for (let i = 0; i < 14; i++) {
+    const s = document.createElement("span");
+    const ang = (i / 14) * 2 * Math.PI;
+    const dist = 55 + Math.random() * 45;
+    s.style.background = colors[i % colors.length];
+    s.style.setProperty("--dx", `${(Math.cos(ang) * dist).toFixed(0)}px`);
+    s.style.setProperty("--dy", `${(Math.sin(ang) * dist).toFixed(0)}px`);
+    holder.appendChild(s);
+  }
+  overlay.appendChild(holder);
+  setTimeout(() => holder.remove(), 900);
 }
 function spawnConfetti() {
   const layer = $("#confetti-layer");
   layer.innerHTML = "";
   const colors = ["#FF9500", "#FFD60A", "#30D158", "#64D2FF", "#FF375F"];
-  for (let i = 0; i < 28; i++) {
+  for (let i = 0; i < 32; i++) {
     const el = document.createElement("span");
     el.className = "confetto";
     el.style.left = `${Math.random() * 100}%`;
     el.style.background = colors[i % colors.length];
-    el.style.animationDuration = `${900 + Math.random() * 700}ms`;
-    el.style.animationDelay = `${Math.random() * 250}ms`;
+    el.style.animationDuration = `${900 + Math.random() * 800}ms`;
+    el.style.animationDelay = `${Math.random() * 300}ms`;
     el.style.transform = `rotate(${Math.random() * 360}deg)`;
+    if (i % 3 === 0) el.style.borderRadius = "50%";
+    if (i % 4 === 0) { el.style.width = "6px"; el.style.height = "10px"; }
     layer.appendChild(el);
   }
+  Sound.pop();
   setTimeout(() => { layer.innerHTML = ""; }, 2200);
 }
 
