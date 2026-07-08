@@ -255,7 +255,9 @@ function render() {
   ensureToday();
   renderHeute();
   renderFortschritt();
+  renderSammlung();
   renderJournal();
+  renderEinstellungen();
 }
 
 function renderTrackList() {
@@ -566,8 +568,16 @@ function renderFortschritt() {
     <p class="section-label">Aktivität · letzte 12 Wochen</p>
     <div class="card">${heatmapHtml()}</div>
     <p class="section-label">Angstkurve</p>
-    <div class="card chart-card">${fearChart()}</div>
-    <p class="section-label">Mut-Sammlung · ${(state.collection || []).length} von ${CARDS.length}</p>
+    <div class="card chart-card">${fearChart()}</div>`;
+
+  v.innerHTML = html;
+}
+
+// ── Sammlung: Karten, Joker, Abzeichen ──────────────────
+function renderSammlung() {
+  const v = $("#view-sammlung");
+  let html = `<h1>Sammlung</h1>
+    <p class="section-label">Mut-Karten · ${(state.collection || []).length} von ${CARDS.length}</p>
     <div class="card"><div class="card-grid">${CARDS.map((c) => {
       const owned = (state.collection || []).includes(c.id);
       return owned
@@ -575,18 +585,12 @@ function renderFortschritt() {
         : `<div class="mini-card locked"><span class="mc-icon">?</span><span class="mc-name">···</span></div>`;
     }).join("")}</div>
     <p class="c-tipp" style="margin-top:12px">Karten findest du in der Mut-Truhe. Seltenheit: ● Häufig · ◆ Selten · ★ Episch · ♛ Legendär</p></div>
-    <p class="section-label">Abzeichen</p>
-    <div class="list-group" id="badge-list"></div>
-    <p class="section-label">Einstellungen</p>
+    <p class="section-label">Vorrat</p>
     <div class="list-group">
       <div class="list-row"><div class="row-main"><p class="row-title">Streak-Joker</p><p class="row-sub">Fängt einen verpassten Tag ab. Alle 7 Mutproben gibt es einen.</p></div><span class="row-value">${state.jokers} von 2</span></div>
-      <button class="list-row" id="btn-name"><div class="row-main"><p class="row-title">Name</p><p class="row-sub">Für die Begrüßung auf dem Heute-Tab</p></div><span class="row-value">${state.name ? escapeHtml(state.name) : "–"}</span></button>
-      <button class="list-row" id="btn-theme"><div class="row-main"><p class="row-title">Darstellung</p><p class="row-sub">Hell, Dunkel oder wie dein iPhone</p></div><span class="row-value">${{ system: "System", light: "Hell", dark: "Dunkel" }[state.theme || "system"]}</span></button>
-      <button class="list-row" id="btn-sound"><div class="row-main"><p class="row-title">Töne</p><p class="row-sub">Soundeffekte bei Erfolgen und Aktionen</p></div><span class="row-value">${state.soundOn !== false ? "An" : "Aus"}</span></button>
-      <button class="list-row" id="btn-switch-track"><div class="row-main"><p class="row-title">Track wechseln</p><p class="row-sub">Aktuell: ${TRACKS[state.track].name}</p></div></button>
-      <button class="list-row" id="btn-requiz"><div class="row-main"><p class="row-title">Einstufung wiederholen</p><p class="row-sub">Passt dein Startlevel an (aktuell: Aufgaben bis Stufe ${Math.max(...unlockedStufen())})</p></div></button>
-      <button class="list-row" id="btn-reset"><div class="row-main"><p class="row-title danger">Alles zurücksetzen</p></div></button>
-    </div>`;
+    </div>
+    <p class="section-label">Abzeichen</p>
+    <div class="list-group" id="badge-list"></div>`;
 
   v.innerHTML = html;
 
@@ -611,6 +615,26 @@ function renderFortschritt() {
       <div class="row-main"><p class="row-title">${b.name}</p><p class="row-sub">${b.desc}</p>${progressHtml}</div>${value}`;
     list.appendChild(row);
   });
+}
+
+// ── Einstellungen (eigener Tab, Zahnrad) ────────────────
+function renderEinstellungen() {
+  const v = $("#view-einstellungen");
+  v.innerHTML = `<h1>Einstellungen</h1>
+    <div class="list-group">
+      <button class="list-row" id="btn-name"><div class="row-main"><p class="row-title">Name</p><p class="row-sub">Für die Begrüßung auf dem Heute-Tab</p></div><span class="row-value">${state.name ? escapeHtml(state.name) : "–"}</span></button>
+      <button class="list-row" id="btn-theme"><div class="row-main"><p class="row-title">Darstellung</p><p class="row-sub">Hell, Dunkel oder wie dein iPhone</p></div><span class="row-value">${{ system: "System", light: "Hell", dark: "Dunkel" }[state.theme || "system"]}</span></button>
+      <button class="list-row" id="btn-sound"><div class="row-main"><p class="row-title">Töne</p><p class="row-sub">Soundeffekte bei Erfolgen und Aktionen</p></div><span class="row-value">${state.soundOn !== false ? "An" : "Aus"}</span></button>
+    </div>
+    <p class="section-label">Training</p>
+    <div class="list-group">
+      <button class="list-row" id="btn-switch-track"><div class="row-main"><p class="row-title">Track wechseln</p><p class="row-sub">Aktuell: ${TRACKS[state.track].name}</p></div></button>
+      <button class="list-row" id="btn-requiz"><div class="row-main"><p class="row-title">Einstufung wiederholen</p><p class="row-sub">Passt dein Startlevel an (aktuell: Aufgaben bis Stufe ${Math.max(...unlockedStufen())})</p></div></button>
+    </div>
+    <p class="section-label">Daten</p>
+    <div class="list-group">
+      <button class="list-row" id="btn-reset"><div class="row-main"><p class="row-title danger">Alles zurücksetzen</p></div></button>
+    </div>`;
 
   $("#btn-theme").addEventListener("click", () => {
     const order = ["system", "light", "dark"];
