@@ -20,7 +20,7 @@
   --overlay: rgba(242, 242, 247, 0.94);
 }
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #000000;
     --card: #1C1C1E;
     --card-2: #2C2C2E;
@@ -38,6 +38,25 @@
     --tab-bg: rgba(22, 22, 24, 0.88);
     --overlay: rgba(0, 0, 0, 0.94);
   }
+}
+/* Manuell gewählter Dunkelmodus (Einstellung „Darstellung“) */
+:root[data-theme="dark"] {
+  --bg: #000000;
+  --card: #1C1C1E;
+  --card-2: #2C2C2E;
+  --text: #FFFFFF;
+  --text-2: #A1A1A6;
+  --text-3: #8E8E93;
+  --sep: rgba(84, 84, 88, 0.6);
+  --accent: #FF9F0A;
+  --accent-text: #FF9F0A;
+  --accent-tint: rgba(255, 159, 10, 0.16);
+  --green: #30D158;
+  --blue: #64D2FF;
+  --danger: #FF453A;
+  --ring-track: #3A3A3C;
+  --tab-bg: rgba(22, 22, 24, 0.88);
+  --overlay: rgba(0, 0, 0, 0.94);
 }
 
 html, body { height: 100%; }
@@ -114,6 +133,34 @@ main { flex: 1; padding: max(18px, env(safe-area-inset-top)) 16px calc(88px + en
 
 /* Mut-Gedanke des Tages */
 .thought { text-align: center; font-size: 14px; color: var(--text-3); font-style: italic; margin: 22px 12px 8px; line-height: 1.5; }
+.thought-by { display: block; font-style: normal; font-size: 12px; margin-top: 3px; }
+
+/* Mut-Sammlung */
+.card-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.mini-card {
+  border: 1.5px solid var(--sep); border-radius: 10px; padding: 9px 4px;
+  min-height: 60px; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 3px; text-align: center;
+}
+.mini-card.locked { opacity: 0.45; border-style: dashed; }
+.mc-icon { font-size: 16px; line-height: 1; }
+.mc-name { font-size: 11px; line-height: 1.2; color: var(--text-2); font-weight: 500; }
+.r-haeufig { border-color: #8E8E93; }
+.r-haeufig .mc-icon { color: #8E8E93; }
+.r-selten { border-color: #0A84FF; }
+.r-selten .mc-icon { color: #0A84FF; }
+.r-episch { border-color: #BF5AF2; }
+.r-episch .mc-icon { color: #BF5AF2; }
+.r-legendaer { border-color: #FFB800; }
+.r-legendaer .mc-icon { color: #FFB800; }
+
+.card-chip { display: inline-block; border: 1.5px solid; border-radius: 999px; padding: 5px 14px; font-weight: 600; font-size: 16px; }
+.card-chip.r-haeufig { color: #8E8E93; }
+.card-chip.r-selten { color: #0A84FF; }
+.card-chip.r-episch { color: #BF5AF2; }
+.card-chip.r-legendaer { color: #FFB800; }
+.card-flavor { display: block; font-size: 14px; color: var(--text-2); margin-top: 8px; }
+.card-rar { display: block; font-size: 12px; color: var(--text-3); margin-top: 4px; }
 
 /* Aktivitäts-Heatmap */
 .heat-grid { display: grid; grid-template-rows: repeat(7, 1fr); grid-auto-flow: column; gap: 4px; justify-content: space-between; }

@@ -45,6 +45,9 @@ const defaultState = () => ({
   soundOn: true,
   name: "",
   lastRecapWeek: null,
+  theme: "system",
+  collection: [],
+  chestsSinceCard: 0,
   currentChallengeId: null,
   currentIsBoss: false,
   currentWette: null,        // { text, prob, fearBefore }
@@ -225,6 +228,13 @@ function bossForWeek() {
 }
 function findChallenge(id) {
   return CHALLENGES.find((c) => c.id === id) || BOSS_CHALLENGES.find((b) => b.id === id) || null;
+}
+
+// ── Darstellung (Hell/Dunkel/System) ────────────────────
+function applyTheme() {
+  const t = state.theme || "system";
+  if (t === "system") delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = t;
 }
 
 // ── Rendering ───────────────────────────────────────────
@@ -458,9 +468,10 @@ function renderHeute() {
       </button>`;
   }
 
-  // Mut-Gedanke des Tages – täglich neu, ganz unten
+  // Mut-Gedanke des Tages – echtes Zitat, täglich neu, ganz unten
   const dayOfYear = Math.floor((new Date() - new Date(new Date().getFullYear(), 0, 0)) / 86400000);
-  html += `<p class="thought">„${THOUGHTS[dayOfYear % THOUGHTS.length]}“</p>`;
+  const th = THOUGHTS[dayOfYear % THOUGHTS.length];
+  html += `<p class="thought">„${th.text}“<span class="thought-by">– ${th.by}</span></p>`;
 
   v.innerHTML = html;
 
@@ -556,12 +567,21 @@ function renderFortschritt() {
     <div class="card">${heatmapHtml()}</div>
     <p class="section-label">Angstkurve</p>
     <div class="card chart-card">${fearChart()}</div>
+    <p class="section-label">Mut-Sammlung · ${(state.collection || []).length} von ${CARDS.length}</p>
+    <div class="card"><div class="card-grid">${CARDS.map((c) => {
+      const owned = (state.collection || []).includes(c.id);
+      return owned
+        ? `<div class="mini-card r-${c.rarity}"><span class="mc-icon">${RARITY_ICON[c.rarity]}</span><span class="mc-name">${c.name}</span></div>`
+        : `<div class="mini-card locked"><span class="mc-icon">?</span><span class="mc-name">···</span></div>`;
+    }).join("")}</div>
+    <p class="c-tipp" style="margin-top:12px">Karten findest du in der Mut-Truhe. Seltenheit: ● Häufig · ◆ Selten · ★ Episch · ♛ Legendär</p></div>
     <p class="section-label">Abzeichen</p>
     <div class="list-group" id="badge-list"></div>
     <p class="section-label">Einstellungen</p>
     <div class="list-group">
       <div class="list-row"><div class="row-main"><p class="row-title">Streak-Joker</p><p class="row-sub">Fängt einen verpassten Tag ab. Alle 7 Mutproben gibt es einen.</p></div><span class="row-value">${state.jokers} von 2</span></div>
       <button class="list-row" id="btn-name"><div class="row-main"><p class="row-title">Name</p><p class="row-sub">Für die Begrüßung auf dem Heute-Tab</p></div><span class="row-value">${state.name ? escapeHtml(state.name) : "–"}</span></button>
+      <button class="list-row" id="btn-theme"><div class="row-main"><p class="row-title">Darstellung</p><p class="row-sub">Hell, Dunkel oder wie dein iPhone</p></div><span class="row-value">${{ system: "System", light: "Hell", dark: "Dunkel" }[state.theme || "system"]}</span></button>
       <button class="list-row" id="btn-sound"><div class="row-main"><p class="row-title">Töne</p><p class="row-sub">Soundeffekte bei Erfolgen und Aktionen</p></div><span class="row-value">${state.soundOn !== false ? "An" : "Aus"}</span></button>
       <button class="list-row" id="btn-switch-track"><div class="row-main"><p class="row-title">Track wechseln</p><p class="row-sub">Aktuell: ${TRACKS[state.track].name}</p></div></button>
       <button class="list-row" id="btn-requiz"><div class="row-main"><p class="row-title">Einstufung wiederholen</p><p class="row-sub">Passt dein Startlevel an (aktuell: Aufgaben bis Stufe ${Math.max(...unlockedStufen())})</p></div></button>
@@ -592,6 +612,14 @@ function renderFortschritt() {
     list.appendChild(row);
   });
 
+  $("#btn-theme").addEventListener("click", () => {
+    const order = ["system", "light", "dark"];
+    const cur = order.indexOf(state.theme || "system");
+    state.theme = order[(cur + 1) % order.length];
+    saveState();
+    applyTheme();
+    render();
+  });
   $("#btn-name").addEventListener("click", () => {
     const neu = prompt("Wie dürfen wir dich nennen?", state.name || "");
     if (neu !== null) {
@@ -695,7 +723,7 @@ function renderJournal() {
       <div class="j-head"><span>${fmtDate(h.date)}${h.isBoss ? " · Wochen-Boss" : ""}</span>
         <span class="outcome-${h.outcome}">${outcomeLabel[h.outcome]} · +${h.xp} XP</span></div>
       <p class="j-challenge">${c ? c.text : "Challenge"}</p>
-      <p class="j-text">${escapeHtml(h.text)}</p>
+      ${h.text ? `<p class="j-text">${escapeHtml(h.text)}</p>` : ""}
       ${typeof h.fearBefore === "number" ? `<p class="j-meta">Angst: ${h.fearBefore} → ${h.fearAfter}</p>` : ""}
       ${wetteLine}
     </div>`;
@@ -756,11 +784,6 @@ function saveReflect() {
   const outcome = pendingOutcome;
   const text = $("#reflect-text").value.trim();
   const err = $("#reflect-error");
-  if (text.length < 5) {
-    err.textContent = "Schreib mindestens einen kurzen Satz – Ehrlichkeit ist der Deal.";
-    err.classList.remove("hidden");
-    return;
-  }
   const hasWette = !!state.currentWette && outcome !== "skip";
   let eingetreten = null;
   if (hasWette) {
@@ -841,19 +864,29 @@ function saveReflect() {
     if (state.jokers < 2) { state.jokers += 1; jokerEarned = true; }
   }
 
-  // Mut-Truhe – nur bei der ersten Mutprobe des Tages (und beim Boss)
+  // Mut-Truhe – nur bei der ersten Mutprobe des Tages (und beim Boss).
+  // Pity-System wie im Gaming: spätestens jede 3. Truhe enthält garantiert eine Sammelkarte.
   const firstToday = isBoss || (state.todayCompleted || []).length === 1;
   if (firstToday) {
     const roll = Math.random();
-    if (roll < 0.55) {
-      const bonus = 5 + Math.floor(Math.random() * 11);
-      state.xp += bonus;
-      truhe = { type: "xp", text: `+${bonus} Bonus-XP aus der Truhe` };
-    } else if (roll < 0.9 || state.jokers >= 2) {
-      truhe = { type: "quote", text: QUOTES[Math.floor(Math.random() * QUOTES.length)] };
+    const pity = (state.chestsSinceCard || 0) >= 2;
+    const card = (pity || roll < 0.3) ? drawCard() : null;
+    if (card) {
+      state.collection = [...(state.collection || []), card.id];
+      state.chestsSinceCard = 0;
+      truhe = { type: "card", card };
     } else {
-      state.jokers += 1;
-      truhe = { type: "joker", text: "Ein Streak-Joker. Er fängt einen verpassten Tag ab." };
+      state.chestsSinceCard = (state.chestsSinceCard || 0) + 1;
+      if (roll < 0.6) {
+        const bonus = 5 + Math.floor(Math.random() * 11);
+        state.xp += bonus;
+        truhe = { type: "xp", text: `+${bonus} Bonus-XP aus der Truhe` };
+      } else if (roll < 0.92 || state.jokers >= 2) {
+        truhe = { type: "quote", text: QUOTES[Math.floor(Math.random() * QUOTES.length)] };
+      } else {
+        state.jokers += 1;
+        truhe = { type: "joker", text: "Ein Streak-Joker. Er fängt einen verpassten Tag ab." };
+      }
     }
   }
 
@@ -883,6 +916,21 @@ function saveReflect() {
   celebrate(xp, sub, truhe, { outcome, leveledUp: newLevel > prevLevel });
 }
 
+// Sammelkarte ziehen: gewichtete Seltenheit, nur noch fehlende Karten
+function drawCard() {
+  const owned = new Set(state.collection || []);
+  const pool = CARDS.filter((c) => !owned.has(c.id));
+  if (!pool.length) return null;
+  const weights = { haeufig: 60, selten: 25, episch: 12, legendaer: 3 };
+  const total = pool.reduce((a, c) => a + weights[c.rarity], 0);
+  let r = Math.random() * total;
+  for (const c of pool) {
+    r -= weights[c.rarity];
+    if (r <= 0) return c;
+  }
+  return pool[pool.length - 1];
+}
+
 // ── Feier-Overlay ───────────────────────────────────────
 function celebrate(xp, sub, truhe, fx = {}) {
   const overlay = $("#celebrate");
@@ -898,7 +946,15 @@ function celebrate(xp, sub, truhe, fx = {}) {
     Sound.chest();
     chestBurst();
     chest.classList.add("hidden");
-    reward.textContent = truhe.text;
+    if (truhe.type === "card") {
+      const c = truhe.card;
+      reward.innerHTML = `<span class="card-chip r-${c.rarity}">${RARITY_ICON[c.rarity]} ${c.name}</span>
+        <span class="card-flavor">${c.text}</span>
+        <span class="card-rar">${RARITY_NAME[c.rarity]} · Sammlung ${(state.collection || []).length} von ${CARDS.length}</span>`;
+      if (c.rarity === "episch" || c.rarity === "legendaer") { Sound.levelUp(); spawnRays(); }
+    } else {
+      reward.textContent = truhe.text;
+    }
     reward.classList.remove("hidden");
   };
   ring.style.transition = "none";
@@ -1080,6 +1136,7 @@ function init() {
   $("#cele-done").addEventListener("click", () => $("#celebrate").classList.add("hidden"));
 
   setupMic();
+  applyTheme();
   render();
 }
 

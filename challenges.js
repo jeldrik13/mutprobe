@@ -90,23 +90,48 @@ const QUOTES = [
   "Übung macht nicht perfekt. Übung macht gelassen. Reicht völlig.",
 ];
 
-// Mut-Gedanke des Tages – täglich wechselnd, deterministisch nach Datum
+// Mut-Gedanke des Tages – echte Zitate, täglich wechselnd, deterministisch nach Datum
 const THOUGHTS = [
-  "Die meisten Menschen sind zu beschäftigt mit sich selbst, um dich zu bewerten.",
-  "Ein unangenehmes Gespräch dauert Minuten. Das Vermeiden davon dauert Jahre.",
-  "Mut fühlt sich vorher wie Angst an. Das ist normal und kein Stoppsignal.",
-  "Du musst nicht selbstsicher sein, um mutig zu handeln. Es geht andersherum.",
-  "Jedes Nein bringt dich näher an ein Ja – und macht dich unempfindlicher gegen beides.",
-  "Peinlichkeit ist ein Gefühl, kein Zustand. Sie verfliegt schneller als Kaffee kalt wird.",
-  "Wer nichts riskiert, bekommt auch ein Ergebnis: immer dasselbe.",
-  "Niemand erinnert sich an deinen verpatzten Satz. Alle erinnern sich an ihre eigenen.",
-  "Kleine Schritte täglich schlagen große Pläne monatlich.",
-  "Deine Komfortzone wächst nur, wenn du gelegentlich rausgehst.",
-  "Angst ist ein miserabler Wahrsager. Prüf ihre Bilanz in deinem Journal.",
-  "Charme ist Übungssache. Talent wird überschätzt.",
-  "Das Schlimmste, was meistens passiert: nichts. Das Beste: alles.",
-  "Heute unbeholfen ist besser als morgen wieder still.",
+  { text: "Tu jeden Tag eine Sache, die dir Angst macht.", by: "Eleanor Roosevelt" },
+  { text: "Mut ist Widerstand gegen die Angst, Beherrschung der Angst – nicht die Abwesenheit von Angst.", by: "Mark Twain" },
+  { text: "Nicht weil es schwer ist, wagen wir es nicht, sondern weil wir es nicht wagen, ist es schwer.", by: "Seneca" },
+  { text: "Ich habe gelernt, dass Mut nicht die Abwesenheit von Furcht ist, sondern der Triumph über sie.", by: "Nelson Mandela" },
+  { text: "Du gewinnst Kraft, Mut und Selbstvertrauen durch jede Erfahrung, in der du der Angst wirklich ins Gesicht siehst.", by: "Eleanor Roosevelt" },
+  { text: "Es gibt nichts Gutes, außer man tut es.", by: "Erich Kästner" },
+  { text: "Das Einzige, was wir fürchten müssen, ist die Furcht selbst.", by: "Franklin D. Roosevelt" },
+  { text: "Was wäre das Leben, hätten wir nicht den Mut, etwas zu riskieren?", by: "Vincent van Gogh" },
+  { text: "Nichts im Leben muss man fürchten, man muss es nur verstehen.", by: "Marie Curie" },
+  { text: "Es ist egal, wie langsam du gehst, solange du nicht stehen bleibst.", by: "Konfuzius" },
+  { text: "Das habe ich noch nie vorher versucht, also bin ich völlig sicher, dass ich es schaffe.", by: "Astrid Lindgren (Pippi Langstrumpf)" },
+  { text: "Untätigkeit erzeugt Zweifel und Angst. Handeln erzeugt Zuversicht und Mut.", by: "Dale Carnegie" },
+  { text: "Wer nicht mutig genug ist, Risiken einzugehen, wird im Leben nichts erreichen.", by: "Muhammad Ali" },
+  { text: "Wer tapfer ist, ist frei.", by: "Seneca" },
+  { text: "Mut steht am Anfang des Handelns, Glück am Ende.", by: "Demokrit" },
+  { text: "Jedem Anfang wohnt ein Zauber inne.", by: "Hermann Hesse" },
 ];
+
+// Mut-Sammlung: Sammelkarten aus der Truhe (Seltenheitsstufen wie im Gaming)
+const CARDS = [
+  { id: "c01", rarity: "haeufig", name: "Erster Funke", text: "Jede Legende beginnt mit einem Hallo." },
+  { id: "c02", rarity: "haeufig", name: "Kaltstart", text: "Einfach angefangen, bevor der Kopf Nein sagen konnte." },
+  { id: "c03", rarity: "haeufig", name: "Blickkontakt", text: "Zwei Sekunden Standhalten. Fühlte sich an wie zwanzig." },
+  { id: "c04", rarity: "haeufig", name: "Türöffner", text: "Ein Satz genügt, und ein Fremder wird ein Mensch." },
+  { id: "c05", rarity: "haeufig", name: "Morgenmut", text: "Vor dem ersten Kaffee schon mutiger als gestern." },
+  { id: "c06", rarity: "haeufig", name: "Smalltalk-Azubi", text: "Über das Wetter reden zählt. Ehrlich." },
+  { id: "c07", rarity: "haeufig", name: "Nachfrager", text: "Wer fragt, führt. Wer nicht fragt, rät." },
+  { id: "c08", rarity: "selten", name: "Eisbrecher", text: "Bricht Schweigen bei jeder Wetterlage." },
+  { id: "c09", rarity: "selten", name: "Korb-Katapult", text: "Wirft dich nach jedem Nein zurück ins Spiel." },
+  { id: "c10", rarity: "selten", name: "Neinsager", text: "Sagt Nein ohne Fußnoten und Entschuldigungsschleife." },
+  { id: "c11", rarity: "selten", name: "Plauderprofi", text: "Findet in jeder Schlange ein Gespräch." },
+  { id: "c12", rarity: "selten", name: "Adrenalin-Abo", text: "Herzklopfen ist hier ein Feature, kein Bug." },
+  { id: "c13", rarity: "episch", name: "Angstflüsterer", text: "Hört die Angst an – und macht es trotzdem." },
+  { id: "c14", rarity: "episch", name: "Herz aus Stahl", text: "Klopft laut, gibt aber nicht nach." },
+  { id: "c15", rarity: "episch", name: "Bühnenlöwe", text: "Alle Blicke im Raum? Genau richtig so." },
+  { id: "c16", rarity: "legendaer", name: "Die Taube", text: "Null Angst. Null Filter. Läuft jedem vor die Füße. Dein wahres Vorbild." },
+];
+
+const RARITY_ICON = { haeufig: "●", selten: "◆", episch: "★", legendaer: "♛" };
+const RARITY_NAME = { haeufig: "Häufig", selten: "Selten", episch: "Episch", legendaer: "Legendär" };
 
 // Level-System
 const LEVELS = [
@@ -139,4 +164,6 @@ const BADGES = [
   { id: "boss", name: "Bosskampf", desc: "Einen Wochen-Boss besiegt", check: (s) => s.history.some((h) => h.isBoss && h.outcome !== "skip") },
   { id: "boss4", name: "Bossjäger", desc: "Vier Wochen-Bosse besiegt", check: (s) => s.history.filter((h) => h.isBoss && h.outcome !== "skip").length >= 4, progress: (s) => [s.history.filter((h) => h.isBoss && h.outcome !== "skip").length, 4] },
   { id: "stufe3", name: "Königsklasse", desc: "Eine Stufe-3-Challenge gemeistert", check: (s) => s.history.some((h) => { const c = CHALLENGES.find((x) => x.id === h.challengeId); return c && c.stufe === 3 && h.outcome !== "skip"; }) },
+  { id: "sammler", name: "Sammler", desc: "Acht Karten aus der Mut-Truhe", check: (s) => (s.collection || []).length >= 8, progress: (s) => [(s.collection || []).length, 8] },
+  { id: "taube", name: "Taubenfreund", desc: "Die legendäre Taube gezogen", check: (s) => (s.collection || []).includes("c16") },
 ];
