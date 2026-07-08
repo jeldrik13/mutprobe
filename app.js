@@ -762,7 +762,9 @@ function openReflect(outcome) {
   $("#reflect-error").classList.add("hidden");
   const hasWette = !!state.currentWette && outcome !== "skip";
   $("#wette-check").classList.toggle("hidden", !hasWette);
-  $("#fear-before2-wrap").classList.toggle("hidden", !!state.currentWette);
+  // Ohne gemachte Aufgabe gibt es keine Vorher/Nachher-Angst – Regler ausblenden
+  $("#fear-before2-wrap").classList.toggle("hidden", !!state.currentWette || outcome === "skip");
+  $("#fear-after-wrap").classList.toggle("hidden", outcome === "skip");
   if (hasWette) {
     $("#wette-recap-text").textContent = `„${state.currentWette.text}“ – ${state.currentWette.prob} % sicher.`;
     document.querySelectorAll("#eingetreten-seg button").forEach((b) => b.classList.remove("sel"));
@@ -811,8 +813,8 @@ function saveReflect() {
     state.lastSkipXpDay = todayStr();
   }
 
-  const fearBefore = state.currentWette ? state.currentWette.fearBefore : Number($("#fear-before2").value);
-  const fearAfter = Number($("#fear-after").value);
+  const fearBefore = outcome === "skip" ? null : (state.currentWette ? state.currentWette.fearBefore : Number($("#fear-before2").value));
+  const fearAfter = outcome === "skip" ? null : Number($("#fear-after").value);
 
   const prevLevel = currentLevel();
   const prevBadges = BADGES.filter((b) => b.check(state)).map((b) => b.id);
